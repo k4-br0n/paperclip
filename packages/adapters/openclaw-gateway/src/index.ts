@@ -20,6 +20,9 @@ Core fields:
 - headers (object, optional): handshake headers; supports x-openclaw-token / x-openclaw-auth
 - authToken (string, optional): shared gateway token override
 - password (string, optional): gateway shared password, if configured
+- nativeAgentId (string, optional): explicit native OpenClaw agent id to target; preferred alias for agentId in Phase 1
+- openclawAgentId (string, optional): compatibility alias for nativeAgentId
+- agentId (string, optional): legacy gateway target agent id field; still supported
 
 Gateway connect identity fields:
 - clientId (string, optional): gateway client id (default gateway-client)
@@ -35,11 +38,13 @@ Request behavior fields:
 - timeoutSec (number, optional): adapter timeout in seconds (default 120)
 - waitTimeoutMs (number, optional): agent.wait timeout override (default timeoutSec * 1000)
 - autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true)
-- paperclipApiUrl (string, optional): absolute Paperclip base URL advertised in wake text
+- paperclipApiUrl (string, optional): absolute Paperclip base URL advertised in wake text; OpenClaw-side runs should prefer an already-set PAPERCLIP_API_URL and use this as the documented fallback/default
+- paperclipClaimedApiKeyPath (string, optional): claimed-key JSON path advertised in wake text when PAPERCLIP_API_KEY is not already set; preferred to point at the mapped OpenClaw agent workspace (for example <agent-workspace>/.paperclip/claimed-api-key.json). When omitted, the adapter first tries that agent-workspace .paperclip path from the OpenClaw run context and only then falls back to the legacy ~/.openclaw/workspace/paperclip-claimed-api-key.json compatibility path
 
 Session routing fields:
-- sessionKeyStrategy (string, optional): issue (default), fixed, or run
-- sessionKey (string, optional): fixed session key when strategy=fixed (default paperclip)
+- sessionBindingMode (string, optional): main_session, dedicated_fixed, or issue_scoped. Preferred Phase 1 alias that maps onto session key behavior for one native OpenClaw-linked agent.
+- sessionKeyStrategy (string, optional): legacy session routing field — issue (default), fixed, or run
+- sessionKey (string, optional): fixed session key override. When omitted, sessionBindingMode derives a deterministic key.
 
 Standard outbound payload additions:
 - paperclip (object): standardized Paperclip context added to every gateway agent request

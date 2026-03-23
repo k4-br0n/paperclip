@@ -8,6 +8,7 @@ import crypto, { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 
 type SessionKeyStrategy = "fixed" | "issue" | "run";
+type NativeOpenClawSessionBindingMode = "main_session" | "dedicated_fixed" | "issue_scoped";
 
 type WakePayload = {
   runId: string;
@@ -124,6 +125,85 @@ function normalizeSessionKeyStrategy(value: unknown): SessionKeyStrategy {
   const normalized = asString(value, "issue").trim().toLowerCase();
   if (normalized === "fixed" || normalized === "run") return normalized;
   return "issue";
+}
+
+function normalizeNativeSessionBindingMode(value: unknown): NativeOpenClawSessionBindingMode | null {
+  const normalized = asString(value, "").trim().toLowerCase();
+  if (
+    normalized === "main_session" ||
+    normalized === "dedicated_fixed" ||
+    normalized === "issue_scoped"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function resolveBoundNativeAgentId(input: {
+  config: Record<string, unknown>;
+  payloadTemplate: Record<string, unknown>;
+}): string | null {
+  return (
+    nonEmpty(input.config.nativeAgentId) ??
+    nonEmpty(input.config.openclawAgentId) ??
+    nonEmpty(input.config.agentId) ??
+    nonEmpty(input.payloadTemplate.nativeAgentId) ??
+    nonEmpty(input.payloadTemplate.openclawAgentId) ??
+    nonEmpty(input.payloadTemplate.agentId)
+  );
+}
+
+function resolveEffectiveSessionRouting(input: {
+  config: Record<string, unknown>;
+  wakePayload: WakePayload;
+  runId: string;
+  paperclipAgentId: string;
+  boundNativeAgentId: string | null;
+}): { sessionBindingMode: NativeOpenClawSessionBindingMode | null; strategy: SessionKeyStrategy; sessionKey: string } {
+  const configuredSessionKey = nonEmpty(input.config.sessionKey);
+  const configuredBindingMode = normalizeNativeSessionBindingMode(input.config.sessionBindingMode);
+
+  if (configuredBindingMode === "issue_scoped") {
+    return {
+      sessionBindingMode: configuredBindingMode,
+      strategy: "issue",
+      sessionKey: resolveSessionKey({
+        strategy: "issue",
+        configuredSessionKey,
+        runId: input.runId,
+        issueId: input.wakePayload.issueId,
+      }),
+    };
+  }
+
+  const bindingIdentity = input.boundNativeAgentId ?? input.paperclipAgentId;
+  if (configuredBindingMode === "main_session") {
+    return {
+      sessionBindingMode: configuredBindingMode,
+      strategy: "fixed",
+      sessionKey: configuredSessionKey ?? `agent:${bindingIdentity}:paperclip:main`,
+    };
+  }
+
+  if (configuredBindingMode === "dedicated_fixed") {
+    return {
+      sessionBindingMode: configuredBindingMode,
+      strategy: "fixed",
+      sessionKey: configuredSessionKey ?? `agent:${bindingIdentity}:paperclip:dedicated`,
+    };
+  }
+
+  const legacyStrategy = normalizeSessionKeyStrategy(input.config.sessionKeyStrategy);
+  return {
+    sessionBindingMode: null,
+    strategy: legacyStrategy,
+    sessionKey: resolveSessionKey({
+      strategy: legacyStrategy,
+      configuredSessionKey,
+      runId: input.runId,
+      issueId: input.wakePayload.issueId,
+    }),
+  };
 }
 
 function resolveSessionKey(input: {
@@ -335,8 +415,34 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   return paperclipEnv;
 }
 
-function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string>): string {
-  const claimedApiKeyPath = "~/.openclaw/workspace/paperclip-claimed-api-key.json";
+const DEFAULT_LEGACY_CLAIMED_API_KEY_PATH = "~/.openclaw/workspace/paperclip-claimed-api-key.json";
+const DEFAULT_AGENT_WORKSPACE_CLAIMED_KEY_RELATIVE_PATH = ".paperclip/claimed-api-key.json";
+
+function resolveAgentWorkspaceClaimedApiKeyPath(): string | null {
+  const workspaceRoot =
+    nonEmpty(process.env.OPENCLAW_WORKSPACE_ROOT)
+    ?? nonEmpty(process.env.OPENCLAW_AGENT_WORKSPACE)
+    ?? nonEmpty(process.env.OPENCLAW_WORKSPACE)
+    ?? nonEmpty(process.env.PWD);
+  if (!workspaceRoot) return null;
+  return path.posix.join(workspaceRoot.replace(/\/$/, ""), DEFAULT_AGENT_WORKSPACE_CLAIMED_KEY_RELATIVE_PATH);
+}
+
+function resolveClaimedApiKeyPath(configuredPath: unknown): string {
+  return (
+    nonEmpty(configuredPath)
+    ?? resolveAgentWorkspaceClaimedApiKeyPath()
+    ?? DEFAULT_LEGACY_CLAIMED_API_KEY_PATH
+  );
+}
+
+export function buildWakeText(
+  payload: WakePayload,
+  paperclipEnv: Record<string, string>,
+  options?: { claimedApiKeyPath?: string | null },
+): string {
+  const claimedApiKeyPath = nonEmpty(options?.claimedApiKeyPath) ?? DEFAULT_LEGACY_CLAIMED_API_KEY_PATH;
+  const isLegacyClaimedApiKeyPath = claimedApiKeyPath === DEFAULT_LEGACY_CLAIMED_API_KEY_PATH;
   const orderedKeys = [
     "PAPERCLIP_RUN_ID",
     "PAPERCLIP_AGENT_ID",
@@ -367,9 +473,16 @@ function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string
     "",
     "Set these values in your run context:",
     ...envLines,
-    `PAPERCLIP_API_KEY=<token from ${claimedApiKeyPath}>`,
+    `PAPERCLIP_API_KEY=<preferred: existing env; fallback: token from ${claimedApiKeyPath}>`,
     "",
-    `Load PAPERCLIP_API_KEY from ${claimedApiKeyPath} (the token you saved after claim-api-key).`,
+    "Bootstrap rules:",
+    "- If PAPERCLIP_API_KEY is already set in the OpenClaw run context, keep it and use it.",
+    "- If PAPERCLIP_API_URL is already set in the OpenClaw run context, keep it and use it.",
+    `- If PAPERCLIP_API_KEY is not already set, load it from ${claimedApiKeyPath}.`,
+    isLegacyClaimedApiKeyPath
+      ? `- ${claimedApiKeyPath} is the legacy compatibility fallback path; do not treat it as a required hardcoded location.`
+      : `- ${claimedApiKeyPath} is the configured claimed-key fallback path for runs where PAPERCLIP_API_KEY is not already set.`,
+    "- If you load from the claimed-key JSON file, extract the token value and export it as PAPERCLIP_API_KEY before calling the API.",
     "",
     `api_base=${apiBaseHint}`,
     `task_id=${payload.taskId ?? ""}`,
@@ -1053,16 +1166,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   const wakePayload = buildWakePayload(ctx);
   const paperclipEnv = buildPaperclipEnvForWake(ctx, wakePayload);
-  const wakeText = buildWakeText(wakePayload, paperclipEnv);
-
-  const sessionKeyStrategy = normalizeSessionKeyStrategy(ctx.config.sessionKeyStrategy);
-  const configuredSessionKey = nonEmpty(ctx.config.sessionKey);
-  const sessionKey = resolveSessionKey({
-    strategy: sessionKeyStrategy,
-    configuredSessionKey,
-    runId: ctx.runId,
-    issueId: wakePayload.issueId,
+  const wakeText = buildWakeText(wakePayload, paperclipEnv, {
+    claimedApiKeyPath: resolveClaimedApiKeyPath(ctx.config.paperclipClaimedApiKeyPath),
   });
+
+  const boundNativeAgentId = resolveBoundNativeAgentId({
+    config: parseObject(ctx.config),
+    payloadTemplate,
+  });
+  const sessionRouting = resolveEffectiveSessionRouting({
+    config: parseObject(ctx.config),
+    wakePayload,
+    runId: ctx.runId,
+    paperclipAgentId: ctx.agent.id,
+    boundNativeAgentId,
+  });
+  const sessionKey = sessionRouting.sessionKey;
 
   const templateMessage = nonEmpty(payloadTemplate.message) ?? nonEmpty(payloadTemplate.text);
   const message = templateMessage ? appendWakeText(templateMessage, wakeText) : wakeText;
@@ -1076,9 +1195,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   };
   delete agentParams.text;
 
-  const configuredAgentId = nonEmpty(ctx.config.agentId);
-  if (configuredAgentId && !nonEmpty(agentParams.agentId)) {
-    agentParams.agentId = configuredAgentId;
+  if (boundNativeAgentId && !nonEmpty(agentParams.agentId)) {
+    agentParams.agentId = boundNativeAgentId;
   }
 
   if (typeof agentParams.timeout !== "number") {
@@ -1102,6 +1220,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   await ctx.onLog(
     "stdout",
     `[openclaw-gateway] outbound payload (redacted): ${stringifyForLog(redactForLog(agentParams), 12_000)}\n`,
+  );
+  await ctx.onLog(
+    "stdout",
+    `[openclaw-gateway] session routing: ${stringifyForLog(
+      {
+        bindingMode: sessionRouting.sessionBindingMode ?? "legacy",
+        strategy: sessionRouting.strategy,
+        sessionKey,
+        nativeAgentId: boundNativeAgentId,
+      },
+      2_000,
+    )}\n`,
   );
   await ctx.onLog("stdout", `[openclaw-gateway] outbound header keys: ${outboundHeaderKeys.join(", ")}\n`);
   if (transportHint) {

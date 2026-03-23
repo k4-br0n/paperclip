@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import { execute, testEnvironment } from "@paperclipai/adapter-openclaw-gateway/server";
+import { buildWakeText, execute, testEnvironment } from "@paperclipai/adapter-openclaw-gateway/server";
 import {
   buildOpenClawGatewayConfig,
   parseOpenClawGatewayStdoutLine,
@@ -463,6 +463,56 @@ describe("openclaw gateway adapter execute", () => {
     }
   });
 
+  it("binds explicitly to one native OpenClaw agent and keeps a main session", async () => {
+    const gateway = await createMockGatewayServer();
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          nativeAgentId: "native-agent-42",
+          sessionBindingMode: "main_session",
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      const payload = gateway.getAgentPayload();
+      expect(payload?.agentId).toBe("native-agent-42");
+      expect(payload?.sessionKey).toBe("agent:native-agent-42:paperclip:main");
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("maps issue_scoped binding mode to per-issue sessions", async () => {
+    const gateway = await createMockGatewayServer();
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          nativeAgentId: "native-agent-42",
+          sessionBindingMode: "issue_scoped",
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      const payload = gateway.getAgentPayload();
+      expect(payload?.agentId).toBe("native-agent-42");
+      expect(payload?.sessionKey).toBe("paperclip:issue:issue-123");
+    } finally {
+      await gateway.close();
+    }
+  });
+
   it("fails fast when url is missing", async () => {
     const result = await execute(buildContext({}));
     expect(result.exitCode).toBe(1);
@@ -552,6 +602,65 @@ describe("openclaw gateway adapter execute", () => {
     } finally {
       await gateway.close();
     }
+  });
+});
+
+describe("openclaw gateway wake text", () => {
+  it("prefers explicit env bootstrap instructions and documents legacy claimed-key fallback", () => {
+    const wakeText = buildWakeText(
+      {
+        runId: "run-123",
+        agentId: "agent-123",
+        companyId: "company-123",
+        taskId: "task-123",
+        issueId: "issue-123",
+        wakeReason: "issue_assigned",
+        wakeCommentId: null,
+        approvalId: null,
+        approvalStatus: null,
+        issueIds: ["issue-123"],
+      },
+      {
+        PAPERCLIP_RUN_ID: "run-123",
+        PAPERCLIP_AGENT_ID: "agent-123",
+        PAPERCLIP_COMPANY_ID: "company-123",
+        PAPERCLIP_API_URL: "http://paperclip.example",
+      },
+      {
+        claimedApiKeyPath: "~/.config/paperclip/claimed-key.json",
+      },
+    );
+
+    expect(wakeText).toContain("If PAPERCLIP_API_KEY is already set in the OpenClaw run context, keep it and use it.");
+    expect(wakeText).toContain("If PAPERCLIP_API_URL is already set in the OpenClaw run context, keep it and use it.");
+    expect(wakeText).toContain("If PAPERCLIP_API_KEY is not already set, load it from ~/.config/paperclip/claimed-key.json.");
+    expect(wakeText).toContain("~/.config/paperclip/claimed-key.json is the configured claimed-key fallback path for runs where PAPERCLIP_API_KEY is not already set.");
+    expect(wakeText).not.toContain("Load PAPERCLIP_API_KEY from ~/.openclaw/workspace/paperclip-claimed-api-key.json");
+  });
+
+  it("falls back to the legacy claimed-key path when no override is configured", () => {
+    const wakeText = buildWakeText(
+      {
+        runId: "run-123",
+        agentId: "agent-123",
+        companyId: "company-123",
+        taskId: null,
+        issueId: null,
+        wakeReason: null,
+        wakeCommentId: null,
+        approvalId: null,
+        approvalStatus: null,
+        issueIds: [],
+      },
+      {
+        PAPERCLIP_RUN_ID: "run-123",
+        PAPERCLIP_AGENT_ID: "agent-123",
+        PAPERCLIP_COMPANY_ID: "company-123",
+      },
+    );
+
+    expect(wakeText).toContain("~/.openclaw/workspace/paperclip-claimed-api-key.json");
+    expect(wakeText).toContain("legacy compatibility fallback path");
   });
 });
 

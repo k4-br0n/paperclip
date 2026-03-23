@@ -44,6 +44,21 @@ export interface OrgNode {
   reports: OrgNode[];
 }
 
+export interface OpenClawProvisionResult {
+  agentId: string;
+  claimedApiKeyPath: string;
+  apiUrl: string;
+  keyId: string;
+  keyName: string;
+}
+
+export interface OpenClawIdentityTestResult {
+  claimedApiKeyPath: string;
+  resolvedAgentId: string;
+  resolvedAgentName: string;
+  keyName: string | null;
+}
+
 export interface AgentHireResponse {
   agent: Agent;
   approval: Approval | null;
@@ -180,6 +195,10 @@ export const agentsApi = {
     },
     companyId?: string,
   ) => api.post<HeartbeatRun | { status: "skipped" }>(agentPath(id, companyId, "/wakeup"), data),
+  provisionOpenClawPaperclipKey: (id: string, companyId?: string) =>
+    api.post<OpenClawProvisionResult>(agentPath(id, companyId, "/openclaw/provision-paperclip-key"), {}),
+  testOpenClawPaperclipIdentity: (id: string, companyId?: string) =>
+    api.post<OpenClawIdentityTestResult>(agentPath(id, companyId, "/openclaw/test-paperclip-identity"), {}),
   loginWithClaude: (id: string, companyId?: string) =>
     api.post<ClaudeLoginResult>(agentPath(id, companyId, "/claude-login"), {}),
   availableSkills: () =>

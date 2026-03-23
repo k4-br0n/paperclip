@@ -43,6 +43,17 @@ The adapter supports the same session routing model as HTTP OpenClaw mode:
 
 Resolved session key is sent as `agent.sessionKey`.
 
+## Paperclip API bootstrap on the OpenClaw side
+
+Wake text emitted by this adapter follows this precedence:
+
+1. Prefer an already-set `PAPERCLIP_API_KEY` in the OpenClaw run context.
+2. Prefer an already-set `PAPERCLIP_API_URL` in the OpenClaw run context.
+3. If `PAPERCLIP_API_KEY` is not already present, load it from `paperclipClaimedApiKeyPath` when configured.
+4. If no claimed-key path override is configured, fall back to the legacy compatibility path `~/.openclaw/workspace/paperclip-claimed-api-key.json`.
+
+This keeps explicit env/config authoritative while preserving older claim-api-key flows.
+
 ## Payload Mapping
 
 The agent request is built as:

@@ -42,6 +42,7 @@ import {
   syncInstructionsBundleConfigFromFilePath,
   workspaceOperationService,
 } from "../services/index.js";
+import { openClawPaperclipProvisioningService } from "../services/openclaw-paperclip-provisioning.js";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { findServerAdapter, listAdapterModels } from "../adapters/index.js";
@@ -86,6 +87,12 @@ export function agentRoutes(db: Db) {
   const companySkills = companySkillService(db);
   const workspaceOperations = workspaceOperationService(db);
   const instanceSettings = instanceSettingsService(db);
+  const openClawPaperclipProvisioning = openClawPaperclipProvisioningService({
+    db,
+    agents: svc,
+    instructions,
+    paperclipBaseUrl: process.env.PAPERCLIP_BASE_URL?.trim() || process.env.PAPERCLIP_API_BASE_URL?.trim() || "http://127.0.0.1:3111/api",
+  });
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
 
   async function getCurrentUserRedactionOptions() {
@@ -1137,6 +1144,51 @@ export function agentRoutes(db: Db) {
     });
 
     res.json(state);
+  });
+
+  router.post("/agents/:id/openclaw/provision-paperclip-key", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+
+    const result = await openClawPaperclipProvisioning.provisionForAgent(id);
+
+    await logActivity(db, {
+      companyId: agent.companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "agent.paperclip_key_provisioned",
+      entityType: "agent",
+      entityId: id,
+      details: {
+        claimedApiKeyPath: result.claimedApiKeyPath,
+        apiUrl: result.apiUrl,
+        keyId: result.keyId,
+        keyName: result.keyName,
+      },
+    });
+
+    res.status(201).json(result);
+  });
+
+  router.post("/agents/:id/openclaw/test-paperclip-identity", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+
+    const result = await openClawPaperclipProvisioning.testIdentityForAgent(id);
+
+    res.json(result);
   });
 
   router.post("/companies/:companyId/agent-hires", validate(createAgentHireSchema), async (req, res) => {
