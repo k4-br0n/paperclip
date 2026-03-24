@@ -50,6 +50,7 @@ export interface OpenClawProvisionResult {
   apiUrl: string;
   keyId: string;
   keyName: string;
+  installedRequiredSkillPaths?: string[];
 }
 
 export interface OpenClawIdentityTestResult {

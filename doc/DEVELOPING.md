@@ -134,6 +134,14 @@ For `codex_local`, Paperclip also manages a per-company Codex home under the ins
 
 - `~/.paperclip/instances/default/companies/<company-id>/codex-home`
 
+## Jorge Local Main Instance
+
+For Jorge's live repo-backed local main instance setup, see `doc/LOCAL-INSTANCE-JORGE.md`.
+
+For the reusable runbook explaining the difference between repo-first local-live runtime work and package/release hardening, see `doc/LOCAL-LIVE-RUNBOOK.md`.
+
+Those documents cover the persistent `systemd --user` service, dedicated Paperclip home, prepare/restart workflow, runtime overlay, rollback path, and how to choose the right implementation lane.
+
 ## Worktree-local Instances
 
 When developing from multiple git worktrees, do not point two Paperclip servers at the same embedded PostgreSQL data directory.
