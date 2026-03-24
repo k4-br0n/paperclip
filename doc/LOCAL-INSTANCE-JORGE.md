@@ -270,6 +270,8 @@ Expected result:
 
 For the reusable decision framework and step-by-step approach for choosing between repo-first local live runtime and package/release hardening, see `doc/LOCAL-LIVE-RUNBOOK.md`.
 
+For the persistent Git/GitHub branch model for this fork (`master` as upstream-ish baseline, `k4br0n/live` as private live branch, plus feature/backup branches), see `doc/GIT-BRANCH-WORKFLOW.md`.
+
 ## Recommended Documentation Practice Going Forward
 
 Yes — this repo should keep local-instance-specific operational documentation.
