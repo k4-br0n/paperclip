@@ -20,3 +20,4 @@ export {
   type RunDatabaseRestoreOptions,
 } from "./backup-lib.js";
 export * from "./schema/index.js";
+export { boardApiKeys } from "./schema/board_api_keys.js";

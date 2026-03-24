@@ -9,7 +9,7 @@ UI_DIST="$REPO_ROOT/ui/dist"
 SERVER_UI_DIST="$REPO_ROOT/server/ui-dist"
 
 echo "  -> Building @paperclipai/ui..."
-pnpm --dir "$REPO_ROOT" --filter @paperclipai/ui build
+npx --yes pnpm@9.15.4 --dir "$REPO_ROOT" --filter @paperclipai/ui build
 
 if [ ! -f "$UI_DIST/index.html" ]; then
   echo "Error: UI build output missing at $UI_DIST/index.html"
