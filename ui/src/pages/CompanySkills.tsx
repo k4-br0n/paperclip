@@ -156,8 +156,12 @@ function sourceMeta(sourceBadge: CompanySkillSourceBadge, sourceLabel: string | 
         : { icon: Github, label: sourceLabel ?? "GitHub", managedLabel: "GitHub managed" };
     case "url":
       return { icon: Link2, label: sourceLabel ?? "URL", managedLabel: "URL managed" };
+    case "global":
+      return { icon: Folder, label: sourceLabel ?? "OpenClaw global", managedLabel: "Global OpenClaw skill" };
+    case "bundled":
+      return { icon: Paperclip, label: sourceLabel ?? "Bundled", managedLabel: "Bundled skill" };
     case "local":
-      return { icon: Folder, label: sourceLabel ?? "Folder", managedLabel: "Folder managed" };
+      return { icon: Folder, label: sourceLabel ?? "Folder", managedLabel: "Local/workspace skill" };
     case "paperclip":
       return { icon: Paperclip, label: sourceLabel ?? "Paperclip", managedLabel: "Paperclip managed" };
     default:
@@ -630,6 +634,14 @@ function SkillPane({
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Key</span>
               <span className="font-mono text-xs">{detail.key}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Scope</span>
+              <span className="capitalize">{(detail.scope ?? "unknown").replace("_", " ")}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Truth</span>
+              <span className="capitalize">{(detail.truthOrigin ?? "unknown").replace("_", " ")}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Mode</span>

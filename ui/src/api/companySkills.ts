@@ -1,6 +1,8 @@
 import type {
   CompanySkill,
+  CompanySkillAdoptToAgentResult,
   CompanySkillCreateRequest,
+  CompanySkillRemoveLocalFromAgentResult,
   CompanySkillDetail,
   CompanySkillFileDetail,
   CompanySkillImportResult,
@@ -50,5 +52,15 @@ export const companySkillsApi = {
     api.post<CompanySkill>(
       `/companies/${encodeURIComponent(companyId)}/skills/${encodeURIComponent(skillId)}/install-update`,
       {},
+    ),
+  adoptToAgent: (companyId: string, skillId: string, agentId: string) =>
+    api.post<CompanySkillAdoptToAgentResult>(
+      `/companies/${encodeURIComponent(companyId)}/skills/${encodeURIComponent(skillId)}/adopt-to-agent`,
+      { agentId },
+    ),
+  removeLocalFromAgent: (companyId: string, skillId: string, agentId: string) =>
+    api.post<CompanySkillRemoveLocalFromAgentResult>(
+      `/companies/${encodeURIComponent(companyId)}/skills/${encodeURIComponent(skillId)}/remove-local-from-agent`,
+      { agentId },
     ),
 };

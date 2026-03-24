@@ -26,9 +26,12 @@ export {
 } from "./company.js";
 export {
   companySkillSourceTypeSchema,
+  companySkillScopeSchema,
+  companySkillTruthOriginSchema,
   companySkillTrustLevelSchema,
   companySkillCompatibilitySchema,
   companySkillSourceBadgeSchema,
+  companySkillEffectiveStateSchema,
   companySkillFileInventoryEntrySchema,
   companySkillSchema,
   companySkillListItemSchema,
@@ -43,10 +46,14 @@ export {
   companySkillCreateSchema,
   companySkillFileDetailSchema,
   companySkillFileUpdateSchema,
+  companySkillAdoptToAgentSchema,
+  companySkillRemoveLocalFromAgentSchema,
   type CompanySkillImport,
   type CompanySkillProjectScan,
   type CompanySkillCreate,
   type CompanySkillFileUpdate,
+  type CompanySkillAdoptToAgent,
+  type CompanySkillRemoveLocalFromAgent,
 } from "./company-skill.js";
 export {
   agentSkillStateSchema,

@@ -1,9 +1,12 @@
 import { z } from "zod";
 
 export const companySkillSourceTypeSchema = z.enum(["local_path", "github", "url", "catalog", "skills_sh"]);
+export const companySkillScopeSchema = z.enum(["bundled", "global", "local", "extra_dir", "catalog"]);
+export const companySkillTruthOriginSchema = z.enum(["filesystem", "catalog", "runtime_projection"]);
 export const companySkillTrustLevelSchema = z.enum(["markdown_only", "assets", "scripts_executables"]);
 export const companySkillCompatibilitySchema = z.enum(["compatible", "unknown", "invalid"]);
-export const companySkillSourceBadgeSchema = z.enum(["paperclip", "github", "local", "url", "catalog", "skills_sh"]);
+export const companySkillSourceBadgeSchema = z.enum(["paperclip", "github", "local", "global", "bundled", "url", "catalog", "skills_sh"]);
+export const companySkillEffectiveStateSchema = z.enum(["absent", "bundled_only", "global_only", "local_only", "local_overrides_global", "assigned_bundled", "assigned_global", "assigned_local", "broken", "unmanaged"]);
 
 export const companySkillFileInventoryEntrySchema = z.object({
   path: z.string().min(1),
@@ -19,6 +22,8 @@ export const companySkillSchema = z.object({
   description: z.string().nullable(),
   markdown: z.string(),
   sourceType: companySkillSourceTypeSchema,
+  scope: companySkillScopeSchema.default("catalog"),
+  truthOrigin: companySkillTruthOriginSchema.default("catalog"),
   sourceLocator: z.string().nullable(),
   sourceRef: z.string().nullable(),
   trustLevel: companySkillTrustLevelSchema,
@@ -128,6 +133,17 @@ export const companySkillFileUpdateSchema = z.object({
   path: z.string().min(1),
   content: z.string(),
 });
+
+export const companySkillAdoptToAgentSchema = z.object({
+  agentId: z.string().min(1),
+});
+
+export const companySkillRemoveLocalFromAgentSchema = z.object({
+  agentId: z.string().min(1),
+});
+
+export type CompanySkillAdoptToAgent = z.infer<typeof companySkillAdoptToAgentSchema>;
+export type CompanySkillRemoveLocalFromAgent = z.infer<typeof companySkillRemoveLocalFromAgentSchema>;
 
 export type CompanySkillImport = z.infer<typeof companySkillImportSchema>;
 export type CompanySkillProjectScan = z.infer<typeof companySkillProjectScanRequestSchema>;

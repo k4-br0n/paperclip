@@ -1,10 +1,12 @@
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
+  companySkillAdoptToAgentSchema,
   companySkillCreateSchema,
   companySkillFileUpdateSchema,
   companySkillImportSchema,
   companySkillProjectScanRequestSchema,
+  companySkillRemoveLocalFromAgentSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { accessService, agentService, companySkillService, logActivity } from "../services/index.js";
@@ -249,6 +251,79 @@ export function companySkillRoutes(db: Db) {
 
     res.json(result);
   });
+
+  router.post(
+    "/companies/:companyId/skills/:skillId/adopt-to-agent",
+    validate(companySkillAdoptToAgentSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const skillId = req.params.skillId as string;
+      await assertCanMutateCompanySkills(req, companyId);
+      const agentId = String(req.body.agentId ?? "");
+      const result = await svc.adoptSkillToOpenClawAgent(companyId, skillId, agentId);
+      if (!result) {
+        res.status(404).json({ error: "Skill not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "company.skill_adopted_to_agent",
+        entityType: "company_skill",
+        entityId: result.skillId,
+        details: {
+          targetAgentId: result.agentId,
+          skillKey: result.skillKey,
+          skillSlug: result.skillSlug,
+          installPath: result.installPath,
+          sourcePath: result.sourcePath,
+        },
+      });
+
+      res.json(result);
+    },
+  );
+
+  router.post(
+    "/companies/:companyId/skills/:skillId/remove-local-from-agent",
+    validate(companySkillRemoveLocalFromAgentSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const skillId = req.params.skillId as string;
+      await assertCanMutateCompanySkills(req, companyId);
+      const agentId = String(req.body.agentId ?? "");
+      const result = await svc.removeLocalSkillFromOpenClawAgent(companyId, skillId, agentId);
+      if (!result) {
+        res.status(404).json({ error: "Skill not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "company.skill_removed_from_agent_local",
+        entityType: "company_skill",
+        entityId: result.skillId,
+        details: {
+          targetAgentId: result.agentId,
+          skillKey: result.skillKey,
+          skillSlug: result.skillSlug,
+          removedPath: result.removedPath,
+        },
+      });
+
+      res.json(result);
+    },
+  );
 
   router.post("/companies/:companyId/skills/:skillId/install-update", async (req, res) => {
     const companyId = req.params.companyId as string;

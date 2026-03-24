@@ -164,6 +164,20 @@ export type AdapterSkillOrigin =
   | "user_installed"
   | "external_unknown";
 
+export type AdapterSkillScope = "bundled" | "global" | "local" | "extra_dir" | "unknown";
+
+export type AdapterSkillEffectiveState =
+  | "absent"
+  | "bundled_only"
+  | "global_only"
+  | "local_only"
+  | "local_overrides_global"
+  | "assigned_bundled"
+  | "assigned_global"
+  | "assigned_local"
+  | "broken"
+  | "unmanaged";
+
 export interface AdapterSkillEntry {
   key: string;
   runtimeName: string | null;
@@ -173,6 +187,8 @@ export interface AdapterSkillEntry {
   requiredReason?: string | null;
   state: AdapterSkillState;
   origin?: AdapterSkillOrigin;
+  scope?: AdapterSkillScope;
+  effectiveState?: AdapterSkillEffectiveState;
   originLabel?: string | null;
   locationLabel?: string | null;
   readOnly?: boolean;
@@ -338,6 +354,7 @@ export interface CreateConfigValues {
   envBindings: Record<string, unknown>;
   url: string;
   bootstrapPrompt: string;
+  openclawWorkspaceRoot?: string;
   payloadTemplateJson?: string;
   workspaceStrategyType?: string;
   workspaceBaseRef?: string;

@@ -16,6 +16,21 @@ export const agentSkillOriginSchema = z.enum([
   "external_unknown",
 ]);
 
+export const agentSkillScopeSchema = z.enum(["bundled", "global", "local", "extra_dir", "unknown"]);
+
+export const agentSkillEffectiveStateSchema = z.enum([
+  "absent",
+  "bundled_only",
+  "global_only",
+  "local_only",
+  "local_overrides_global",
+  "assigned_bundled",
+  "assigned_global",
+  "assigned_local",
+  "broken",
+  "unmanaged",
+]);
+
 export const agentSkillSyncModeSchema = z.enum([
   "unsupported",
   "persistent",
@@ -31,6 +46,8 @@ export const agentSkillEntrySchema = z.object({
   requiredReason: z.string().nullable().optional(),
   state: agentSkillStateSchema,
   origin: agentSkillOriginSchema.optional(),
+  scope: agentSkillScopeSchema.optional(),
+  effectiveState: agentSkillEffectiveStateSchema.optional(),
   originLabel: z.string().nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   readOnly: z.boolean().optional(),

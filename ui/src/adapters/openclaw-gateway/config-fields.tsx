@@ -101,11 +101,13 @@ export function OpenClawGatewayConfigFields({
   const [provisionMessage, setProvisionMessage] = useState<string>("");
   const [identityTestState, setIdentityTestState] = useState<"idle" | "running" | "success" | "error">("idle");
 
-  const effectiveWorkspaceRoot = eff(
-    "adapterConfig",
-    "openclawWorkspaceRoot",
-    String(config.openclawWorkspaceRoot ?? config.openclawAgentWorkspace ?? config.workspaceRoot ?? config.workspace ?? config.cwd ?? ""),
-  );
+  const effectiveWorkspaceRoot = isCreate
+    ? String(values?.openclawWorkspaceRoot ?? "")
+    : eff(
+        "adapterConfig",
+        "openclawWorkspaceRoot",
+        String(config.openclawWorkspaceRoot ?? config.openclawAgentWorkspace ?? config.workspaceRoot ?? config.workspace ?? config.cwd ?? ""),
+      );
   const effectiveClaimedApiKeyPath = eff(
     "adapterConfig",
     "paperclipClaimedApiKeyPath",
@@ -164,6 +166,62 @@ export function OpenClawGatewayConfigFields({
         config={config}
         mark={mark}
       />
+
+      <Field label="OpenClaw agent workspace root">
+        <div className="space-y-2">
+          {isCreate ? (
+            <div className="rounded-md border border-amber-300/60 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/20 dark:text-amber-200">
+              Set this during agent creation if you want Paperclip required skills to be provisioned into the native OpenClaw <span className="font-mono">skills/</span> path later. Without it, provisioning can only be partial.
+            </div>
+          ) : null}
+          <DraftInput
+            value={effectiveWorkspaceRoot}
+            onCommit={(v) => {
+              const next = v || undefined;
+              if (isCreate) {
+                set?.({ openclawWorkspaceRoot: next ?? "" });
+              } else {
+                mark("adapterConfig", "openclawWorkspaceRoot", next);
+              }
+            }}
+            immediate
+            className={inputClass}
+            placeholder="/home/jorge/.openclaw/workspace-phronesis"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={async () => {
+                if (!effectiveWorkspaceRoot) return;
+                await navigator.clipboard.writeText(effectiveWorkspaceRoot);
+                pushToast({
+                  title: "Workspace path copied",
+                  body: effectiveWorkspaceRoot,
+                  tone: "success",
+                  ttlMs: 2500,
+                });
+              }}
+              disabled={!effectiveWorkspaceRoot}
+            >
+              <Copy className="h-3 w-3" /> Copy path
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                if (!effectiveWorkspaceRoot) return;
+                window.open(`file://${effectiveWorkspaceRoot}`, "_blank", "noopener,noreferrer");
+              }}
+              disabled={!effectiveWorkspaceRoot}
+            >
+              <FolderOpen className="h-3 w-3" /> Open path
+            </Button>
+          </div>
+        </div>
+      </Field>
 
       {!isCreate && (
         <>
@@ -250,52 +308,6 @@ export function OpenClawGatewayConfigFields({
             </Field>
           )}
 
-          <Field label="OpenClaw agent workspace root">
-            <div className="space-y-2">
-              <DraftInput
-                value={effectiveWorkspaceRoot}
-                onCommit={(v) => {
-                  const next = v || undefined;
-                  mark("adapterConfig", "openclawWorkspaceRoot", next);
-                }}
-                immediate
-                className={inputClass}
-                placeholder="/home/jorge/.openclaw/workspace-phronesis"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  onClick={async () => {
-                    if (!effectiveWorkspaceRoot) return;
-                    await navigator.clipboard.writeText(effectiveWorkspaceRoot);
-                    pushToast({
-                      title: "Workspace path copied",
-                      body: effectiveWorkspaceRoot,
-                      tone: "success",
-                    });
-                  }}
-                  disabled={!effectiveWorkspaceRoot}
-                >
-                  <Copy className="h-3 w-3" /> Copy path
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  onClick={() => {
-                    if (!effectiveWorkspaceRoot) return;
-                    window.open(`file://${effectiveWorkspaceRoot}`, "_blank", "noopener,noreferrer");
-                  }}
-                  disabled={!effectiveWorkspaceRoot}
-                >
-                  <FolderOpen className="h-3 w-3" /> Open path
-                </Button>
-              </div>
-            </div>
-          </Field>
-
           <Field label="Paperclip claimed API key path">
             <div className="space-y-2">
               <DraftInput
@@ -321,16 +333,43 @@ export function OpenClawGatewayConfigFields({
                   type="button"
                   variant="secondary"
                   className="h-8 px-3 text-xs"
-                  disabled={provisionState === "running"}
+                  disabled={provisionState === "running" || !effectiveWorkspaceRoot || !eff("adapterConfig", "nativeAgentId", String(config.nativeAgentId ?? config.agentId ?? ""))}
                   onClick={async () => {
+                    const effectiveNativeAgentId = eff("adapterConfig", "nativeAgentId", String(config.nativeAgentId ?? config.agentId ?? ""));
+                    if (!effectiveWorkspaceRoot) {
+                      const message = "Set the OpenClaw agent workspace root before provisioning Paperclip access and required skills.";
+                      setProvisionState("error");
+                      setProvisionMessage(message);
+                      pushToast({
+                        dedupeKey: `openclaw-provision-missing-workspace:${agentId}`,
+                        title: "Workspace path required",
+                        body: message,
+                        tone: "error",
+                        ttlMs: 25000,
+                      });
+                      return;
+                    }
+                    if (!effectiveNativeAgentId.trim()) {
+                      const message = "Set the bound native OpenClaw agent id before provisioning so Paperclip can bind the correct session and workspace behavior.";
+                      setProvisionState("error");
+                      setProvisionMessage(message);
+                      pushToast({
+                        dedupeKey: `openclaw-provision-missing-workspace:${agentId}`,
+                        title: "Workspace path required",
+                        body: message,
+                        tone: "error",
+                        ttlMs: 25000,
+                      });
+                      return;
+                    }
                     setProvisionState("running");
-                    setProvisionMessage("Provisioning Paperclip key...");
+                    setProvisionMessage("Provisioning Paperclip access and required skills...");
                     pushToast({
                       dedupeKey: `openclaw-provision-start:${agentId}`,
-                      title: "Provisioning Paperclip key",
-                      body: "Creating an agent-scoped key and writing it into the mapped OpenClaw workspace.",
+                      title: "Provisioning Paperclip access",
+                      body: "Creating an agent-scoped key and installing required Paperclip skills into the mapped OpenClaw workspace.",
                       tone: "info",
-                      ttlMs: 2500,
+                      ttlMs: 7000,
                     });
                     try {
                       const result = await agentsApi.provisionOpenClawPaperclipKey(agentId, companyId);
@@ -340,10 +379,12 @@ export function OpenClawGatewayConfigFields({
                       setProvisionMessage(`Provisioned ${result.keyName} at ${result.claimedApiKeyPath}`);
                       pushToast({
                         dedupeKey: `openclaw-provision-success:${agentId}:${result.keyName}`,
-                        title: "Paperclip key provisioned",
-                        body: `${result.keyName} saved to ${result.claimedApiKeyPath}`,
+                        title: "Paperclip access provisioned",
+                        body: result.installedRequiredSkillPaths?.length
+                          ? `${result.keyName} saved to ${result.claimedApiKeyPath}. Installed ${result.installedRequiredSkillPaths.length} required skill${result.installedRequiredSkillPaths.length === 1 ? "" : "s"}.`
+                          : `${result.keyName} saved to ${result.claimedApiKeyPath}`,
                         tone: "success",
-                        ttlMs: 5000,
+                        ttlMs: 25000,
                       });
                     } catch (error) {
                       const message = error instanceof ApiError
@@ -363,7 +404,7 @@ export function OpenClawGatewayConfigFields({
                     }
                   }}
                 >
-                  {provisionState === "running" ? "Provisioning..." : "Provision agent-scoped key"}
+                  {provisionState === "running" ? "Provisioning..." : "Provision Paperclip access + required skills"}
                 </Button>
                 {provisionMessage ? (
                   <div className={provisionState === "error" ? "text-xs text-red-400" : provisionState === "success" ? "text-xs text-green-400" : "text-xs text-muted-foreground"}>
@@ -372,7 +413,9 @@ export function OpenClawGatewayConfigFields({
                 ) : null}
                 <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground space-y-1">
                   <div><span className="font-medium text-foreground">Current Paperclip API URL:</span> <span className="font-mono break-all">{effectivePaperclipApiUrl || "(not set)"}</span></div>
-                  <div><span className="font-medium text-foreground">Last provisioned key:</span> <span className="font-mono">{provisionState === "success" ? provisionMessage.replace(/^Provisioned\s+/, "").split(" at ")[0] : "Provision again to refresh"}</span></div>
+                  <div><span className="font-medium text-foreground">Workspace root:</span> <span className="font-mono break-all">{effectiveWorkspaceRoot || "(required for provisioning required local skills)"}</span></div>
+                  <div><span className="font-medium text-foreground">Bound native OpenClaw agent id:</span> <span className="font-mono break-all">{eff("adapterConfig", "nativeAgentId", String(config.nativeAgentId ?? config.agentId ?? "")) || "(required before provisioning)"}</span></div>
+                  <div><span className="font-medium text-foreground">Last provisioned key:</span> <span className="font-mono">{provisionState === "success" ? provisionMessage.replace(/^Provisioned\s+/, "").split(" at ")[0] : "Run provisioning after setting workspace root + native agent id"}</span></div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
@@ -420,9 +463,21 @@ export function OpenClawGatewayConfigFields({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Creates a Paperclip API key for this Paperclip agent, stores it in the mapped OpenClaw workspace,
-                  updates the adapter config path, and appends Paperclip access notes to AGENTS.md.
+                  Once your workspace root and native OpenClaw agent id are set, this provisions Paperclip access for the agent,
+                  installs required Paperclip skills into the local <span className="font-mono">skills/</span> directory,
+                  updates the claimed key path, and appends Paperclip access notes to AGENTS.md.
                 </p>
+                {!effectiveWorkspaceRoot || !eff("adapterConfig", "nativeAgentId", String(config.nativeAgentId ?? config.agentId ?? "")) ? (
+                  <div className="rounded-md border border-amber-300/60 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/20 dark:text-amber-200">
+                    {effectiveWorkspaceRoot
+                      ? "Your workspace root is set. Next, fill in the bound native OpenClaw agent id, then provision Paperclip access and required local skills below."
+                      : "Set the OpenClaw workspace root first. Then fill in the bound native OpenClaw agent id and provision Paperclip access plus required local skills below."}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/20 dark:text-emerald-200">
+                    Your workspace root and native OpenClaw agent id are set. You can now provision Paperclip access and required local skills below.
+                  </div>
+                )}
               </div>
             </Field>
           )}

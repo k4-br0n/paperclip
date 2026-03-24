@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToast } from "../context/ToastContext";
 import { agentsApi } from "../api/agents";
 import { companySkillsApi } from "../api/companySkills";
 import { queryKeys } from "../lib/queryKeys";
@@ -59,6 +60,7 @@ function createValuesForAdapterType(
 
 export function NewAgent() {
   const { selectedCompanyId } = useCompany();
+  const { pushToast } = useToast();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -130,8 +132,32 @@ export function NewAgent() {
   }, [presetAdapterType]);
 
   const createAgent = useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      agentsApi.hire(selectedCompanyId!, data),
+    mutationFn: async (data: Record<string, unknown>) => {
+      const result = await agentsApi.hire(selectedCompanyId!, data);
+      const adapterConfig = (data.adapterConfig ?? {}) as Record<string, unknown>;
+      const workspaceRoot = typeof adapterConfig.openclawWorkspaceRoot === "string"
+        ? adapterConfig.openclawWorkspaceRoot.trim()
+        : typeof adapterConfig.workspaceRoot === "string"
+          ? adapterConfig.workspaceRoot.trim()
+          : typeof adapterConfig.workspace === "string"
+            ? adapterConfig.workspace.trim()
+            : typeof adapterConfig.cwd === "string"
+              ? adapterConfig.cwd.trim()
+              : "";
+
+      if (data.adapterType === "openclaw_gateway") {
+        pushToast({
+          title: workspaceRoot ? "Agent created — provisioning next" : "Agent created — more setup needed",
+          body: workspaceRoot
+            ? "Your workspace root is set. Next, open the agent config, set the bound native OpenClaw agent id, then provision Paperclip access and required skills below."
+            : "Set the workspace root and bound native OpenClaw agent id in the agent config, then provision Paperclip access and required skills below.",
+          tone: "info",
+          ttlMs: 25000,
+        });
+      }
+
+      return result;
+    },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(selectedCompanyId!) });
@@ -336,7 +362,7 @@ export function NewAgent() {
             <div>
               <h2 className="text-sm font-medium">Company skills</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Optional skills from the company library. Built-in Paperclip runtime skills are added automatically.
+                Optional skills from the company library. For OpenClaw Gateway agents, set the workspace root during creation; after the agent is created, finish setup in the agent config by entering the bound native OpenClaw agent id and provisioning Paperclip access + required local skills.
               </p>
             </div>
             {availableSkills.length === 0 ? (

@@ -13,6 +13,7 @@ import {
   isUuidLike,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
+  type AgentSkillEntry,
   type AgentSkillSnapshot,
   type InstanceSchedulerHeartbeatAgent,
   upsertAgentInstructionsFileSchema,
@@ -91,6 +92,7 @@ export function agentRoutes(db: Db) {
     db,
     agents: svc,
     instructions,
+    companySkills,
     paperclipBaseUrl: process.env.PAPERCLIP_BASE_URL?.trim() || process.env.PAPERCLIP_API_BASE_URL?.trim() || "http://127.0.0.1:3111/api",
   });
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
@@ -517,6 +519,63 @@ export function agentRoutes(db: Db) {
     return adapterType !== "claude_local";
   }
 
+  function computeEffectiveState(entry: AgentSkillEntry): AgentSkillEntry["effectiveState"] {
+    if (entry.origin === "user_installed" || entry.origin === "external_unknown") {
+      return entry.state === "missing" ? "broken" : "unmanaged";
+    }
+    if (entry.state === "missing" || entry.state === "stale") return "broken";
+    if (!entry.desired) {
+      if (entry.scope === "local") return "local_only";
+      if (entry.scope === "global") return "global_only";
+      if (entry.scope === "bundled") return "bundled_only";
+      return "absent";
+    }
+    if (entry.scope === "local") return "assigned_local";
+    if (entry.scope === "global") return "assigned_global";
+    if (entry.scope === "bundled") return "assigned_bundled";
+    return "absent";
+  }
+
+  function enrichSkillSnapshot(snapshot: AgentSkillSnapshot): AgentSkillSnapshot {
+    const scopePriority: Record<NonNullable<AgentSkillEntry["scope"]>, number> = {
+      local: 4,
+      global: 3,
+      bundled: 2,
+      extra_dir: 1,
+      unknown: 0,
+    };
+    const bestByKey = new Map<string, AgentSkillEntry>();
+    const duplicateKeys = new Set<string>();
+
+    for (const entry of snapshot.entries) {
+      const existing = bestByKey.get(entry.key);
+      if (!existing) {
+        bestByKey.set(entry.key, entry);
+        continue;
+      }
+      duplicateKeys.add(entry.key);
+      const existingPriority = scopePriority[existing.scope ?? "unknown"];
+      const incomingPriority = scopePriority[entry.scope ?? "unknown"];
+      if (incomingPriority > existingPriority) {
+        bestByKey.set(entry.key, entry);
+      }
+    }
+
+    const entries = snapshot.entries.map((entry) => {
+      const best = bestByKey.get(entry.key);
+      const isShadowedGlobal = duplicateKeys.has(entry.key) && entry.scope === "global" && best?.scope === "local";
+      return {
+        ...entry,
+        effectiveState: isShadowedGlobal ? "local_overrides_global" : (entry.effectiveState ?? computeEffectiveState(entry)),
+      };
+    });
+
+    return {
+      ...snapshot,
+      entries,
+    };
+  }
+
   async function buildRuntimeSkillConfig(
     companyId: string,
     adapterType: string,
@@ -726,7 +785,7 @@ export function agentRoutes(db: Db) {
       adapterType: agent.adapterType,
       config: runtimeSkillConfig,
     });
-    res.json(snapshot);
+    res.json(enrichSkillSnapshot(snapshot));
   });
 
   router.post(
@@ -800,6 +859,7 @@ export function agentRoutes(db: Db) {
               config: runtimeSkillConfig,
             })
           : buildUnsupportedSkillSnapshot(updated.adapterType, desiredSkills);
+      const enrichedSnapshot = enrichSkillSnapshot(snapshot);
 
       await logActivity(db, {
         companyId: updated.companyId,
@@ -814,13 +874,13 @@ export function agentRoutes(db: Db) {
           adapterType: updated.adapterType,
           desiredSkills,
           mode: snapshot.mode,
-          supported: snapshot.supported,
-          entryCount: snapshot.entries.length,
-          warningCount: snapshot.warnings.length,
+          supported: enrichedSnapshot.supported,
+          entryCount: enrichedSnapshot.entries.length,
+          warningCount: enrichedSnapshot.warnings.length,
         },
       });
 
-      res.json(snapshot);
+      res.json(enrichedSnapshot);
     },
   );
 

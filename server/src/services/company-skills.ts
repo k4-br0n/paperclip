@@ -9,7 +9,9 @@ import { readPaperclipSkillSyncPreference, writePaperclipSkillSyncPreference } f
 import type { PaperclipSkillEntry } from "@paperclipai/adapter-utils/server-utils";
 import type {
   CompanySkill,
+  CompanySkillAdoptToAgentResult,
   CompanySkillCreateRequest,
+  CompanySkillRemoveLocalFromAgentResult,
   CompanySkillCompatibility,
   CompanySkillDetail,
   CompanySkillFileDetail,
@@ -20,8 +22,10 @@ import type {
   CompanySkillProjectScanRequest,
   CompanySkillProjectScanResult,
   CompanySkillProjectScanSkipped,
+  CompanySkillScope,
   CompanySkillSourceBadge,
   CompanySkillSourceType,
+  CompanySkillTruthOrigin,
   CompanySkillTrustLevel,
   CompanySkillUpdateStatus,
   CompanySkillUsageAgent,
@@ -1098,11 +1102,58 @@ async function readUrlSkillImports(
   throw unprocessable("Unsupported skill source. Use a local path or URL.");
 }
 
+function inferCompanySkillScope(skill: {
+  sourceType: CompanySkillSourceType;
+  sourceLocator: string | null;
+  metadata: Record<string, unknown> | null;
+}): CompanySkillScope {
+  const metadata = skill.metadata ?? {};
+  const sourceKind = asString(metadata.sourceKind);
+  const scope = asString(metadata.scope);
+  if (
+    scope === "bundled"
+    || scope === "global"
+    || scope === "local"
+    || scope === "extra_dir"
+    || scope === "catalog"
+  ) {
+    return scope;
+  }
+  if (sourceKind === "paperclip_bundled") return "bundled";
+  if (sourceKind === "openclaw_global") return "global";
+  if (sourceKind === "project_scan" || sourceKind === "managed_local") return "local";
+  if (skill.sourceType === "catalog") return "catalog";
+  return skill.sourceType === "local_path" ? "local" : "catalog";
+}
+
+function inferCompanySkillTruthOrigin(skill: {
+  metadata: Record<string, unknown> | null;
+  sourceType: CompanySkillSourceType;
+}): CompanySkillTruthOrigin {
+  const metadata = skill.metadata ?? {};
+  const truthOrigin = asString(metadata.truthOrigin);
+  if (truthOrigin === "filesystem" || truthOrigin === "catalog" || truthOrigin === "runtime_projection") {
+    return truthOrigin;
+  }
+  if (skill.sourceType === "catalog") return "catalog";
+  return "filesystem";
+}
+
 function toCompanySkill(row: CompanySkillRow): CompanySkill {
+  const metadata = isPlainRecord(row.metadata) ? row.metadata : null;
   return {
     ...row,
     description: row.description ?? null,
     sourceType: row.sourceType as CompanySkillSourceType,
+    scope: inferCompanySkillScope({
+      sourceType: row.sourceType as CompanySkillSourceType,
+      sourceLocator: row.sourceLocator ?? null,
+      metadata,
+    }),
+    truthOrigin: inferCompanySkillTruthOrigin({
+      sourceType: row.sourceType as CompanySkillSourceType,
+      metadata,
+    }),
     sourceLocator: row.sourceLocator ?? null,
     sourceRef: row.sourceRef ?? null,
     trustLevel: row.trustLevel as CompanySkillTrustLevel,
@@ -1116,7 +1167,7 @@ function toCompanySkill(row: CompanySkillRow): CompanySkill {
         }];
       })
       : [],
-    metadata: isPlainRecord(row.metadata) ? row.metadata : null,
+    metadata,
   };
 }
 
@@ -1265,6 +1316,20 @@ function resolveManagedSkillsRoot(companyId: string) {
   return path.resolve(resolvePaperclipInstanceRoot(), "skills", companyId);
 }
 
+function resolveOpenClawGlobalSkillsRoot() {
+  return path.resolve(process.env.HOME ?? "~", ".openclaw", "skills");
+}
+
+function resolveOpenClawAgentWorkspaceRoot(adapterConfig: Record<string, unknown>) {
+  return (
+    asString(adapterConfig.openclawWorkspaceRoot)
+    ?? asString(adapterConfig.openclawAgentWorkspace)
+    ?? asString(adapterConfig.workspaceRoot)
+    ?? asString(adapterConfig.workspace)
+    ?? asString(adapterConfig.cwd)
+  );
+}
+
 function resolveLocalSkillFilePath(skill: CompanySkill, relativePath: string) {
   const normalized = normalizePortablePath(relativePath);
   const skillDir = normalizeSkillDirectory(skill);
@@ -1313,8 +1378,18 @@ function deriveSkillSourceInfo(skill: CompanySkill): {
       editable: false,
       editableReason: "Bundled Paperclip skills are read-only.",
       sourceLabel: "Paperclip bundled",
-      sourceBadge: "paperclip",
+      sourceBadge: "bundled",
       sourcePath: null,
+    };
+  }
+
+  if (metadata.sourceKind === "openclaw_global") {
+    return {
+      editable: true,
+      editableReason: null,
+      sourceLabel: "OpenClaw global",
+      sourceBadge: "global",
+      sourcePath: localSkillDir,
     };
   }
 
@@ -1408,6 +1483,8 @@ function toCompanySkillListItem(skill: CompanySkill, attachedAgentCount: number)
     name: skill.name,
     description: skill.description,
     sourceType: skill.sourceType,
+    scope: skill.scope,
+    truthOrigin: skill.truthOrigin,
     sourceLocator: skill.sourceLocator,
     sourceRef: skill.sourceRef,
     trustLevel: skill.trustLevel,
@@ -1441,11 +1518,15 @@ export function companySkillService(db: Db) {
             metadata: {
               ...(skill.metadata ?? {}),
               sourceKind: "paperclip_bundled",
+              scope: "bundled",
+              truthOrigin: "filesystem",
             },
           }),
           metadata: {
             ...(skill.metadata ?? {}),
             sourceKind: "paperclip_bundled",
+            scope: "bundled",
+            truthOrigin: "filesystem",
           },
         })))
         .catch(() => [] as ImportedSkill[]);
@@ -1453,6 +1534,29 @@ export function companySkillService(db: Db) {
       return upsertImportedSkills(companyId, bundledSkills);
     }
     return [];
+  }
+
+  async function ensureOpenClawGlobalSkills(companyId: string) {
+    const skillsRoot = resolveOpenClawGlobalSkillsRoot();
+    const stats = await fs.stat(skillsRoot).catch(() => null);
+    if (!stats?.isDirectory()) return [];
+
+    const discoveredSkills = await readLocalSkillImports(companyId, skillsRoot)
+      .then((skills) => skills.map((skill) => ({
+        ...skill,
+        sourceType: "local_path" as const,
+        sourceLocator: path.resolve(skillsRoot, skill.slug),
+        metadata: {
+          ...(skill.metadata ?? {}),
+          sourceKind: "openclaw_global",
+          scope: "global",
+          truthOrigin: "filesystem",
+        },
+      })))
+      .catch(() => [] as ImportedSkill[]);
+
+    if (discoveredSkills.length === 0) return [];
+    return upsertImportedSkills(companyId, discoveredSkills);
   }
 
   async function pruneMissingLocalPathSkills(companyId: string) {
@@ -1475,6 +1579,7 @@ export function companySkillService(db: Db) {
 
   async function ensureSkillInventoryCurrent(companyId: string) {
     await ensureBundledSkills(companyId);
+    await ensureOpenClawGlobalSkills(companyId);
     await pruneMissingLocalPathSkills(companyId);
   }
 
@@ -1755,6 +1860,122 @@ export function companySkillService(db: Db) {
     return detail;
   }
 
+  async function adoptSkillToOpenClawAgent(
+    companyId: string,
+    skillId: string,
+    agentId: string,
+  ): Promise<CompanySkillAdoptToAgentResult | null> {
+    await ensureSkillInventoryCurrent(companyId);
+    const skill = await getById(skillId);
+    if (!skill || skill.companyId !== companyId) return null;
+
+    const agent = await agents.getById(agentId);
+    if (!agent || agent.companyId !== companyId) {
+      throw notFound("Agent not found");
+    }
+    if (agent.adapterType !== "openclaw_gateway") {
+      throw unprocessable("Local skill adoption is currently only supported for OpenClaw agents.");
+    }
+
+    const adapterConfig = (agent.adapterConfig ?? {}) as Record<string, unknown>;
+    const workspaceRoot = resolveOpenClawAgentWorkspaceRoot(adapterConfig);
+    if (!workspaceRoot) {
+      throw unprocessable("OpenClaw agent is missing a workspace root/cwd, so local skill installation cannot be resolved.");
+    }
+
+    const sourceDir = normalizeSkillDirectory(skill) ?? (skill.sourceLocator ? path.resolve(skill.sourceLocator) : null);
+    if (!sourceDir) {
+      throw unprocessable("Skill source path could not be resolved for local adoption.");
+    }
+
+    const targetDir = path.resolve(workspaceRoot, "skills", skill.slug);
+    await fs.mkdir(targetDir, { recursive: true });
+
+    for (const entry of skill.fileInventory) {
+      const sourcePath = resolveLocalSkillFilePath(skill, entry.path);
+      const targetPath = path.resolve(targetDir, normalizePortablePath(entry.path));
+      if (!sourcePath) {
+        if (entry.path === "SKILL.md") {
+          await fs.mkdir(path.dirname(targetPath), { recursive: true });
+          await fs.writeFile(targetPath, skill.markdown, "utf8");
+          continue;
+        }
+        throw notFound(`Skill file source could not be resolved: ${entry.path}`);
+      }
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.copyFile(sourcePath, targetPath);
+    }
+
+    const adoptedSkill = await readLocalSkillImportFromDirectory(companyId, targetDir, {
+      inventoryMode: "full",
+      metadata: {
+        sourceKind: "project_scan",
+        scope: "local",
+        truthOrigin: "filesystem",
+        adoptedFromSkillId: skill.id,
+        adoptedFromKey: skill.key,
+        adoptedFromSourcePath: sourceDir,
+      },
+    });
+    adoptedSkill.key = skill.key;
+    adoptedSkill.metadata = {
+      ...(adoptedSkill.metadata ?? {}),
+      skillKey: skill.key,
+      scope: "local",
+      truthOrigin: "filesystem",
+      adoptedFromSkillId: skill.id,
+      adoptedFromKey: skill.key,
+      adoptedFromSourcePath: sourceDir,
+    };
+    await upsertImportedSkills(companyId, [adoptedSkill]);
+
+    return {
+      agentId: agent.id,
+      skillId: skill.id,
+      skillKey: skill.key,
+      skillSlug: skill.slug,
+      installedScope: "local",
+      installPath: targetDir,
+      sourcePath: sourceDir,
+    };
+  }
+
+  async function removeLocalSkillFromOpenClawAgent(
+    companyId: string,
+    skillId: string,
+    agentId: string,
+  ): Promise<CompanySkillRemoveLocalFromAgentResult | null> {
+    await ensureSkillInventoryCurrent(companyId);
+    const skill = await getById(skillId);
+    if (!skill || skill.companyId !== companyId) return null;
+
+    const agent = await agents.getById(agentId);
+    if (!agent || agent.companyId !== companyId) {
+      throw notFound("Agent not found");
+    }
+    if (agent.adapterType !== "openclaw_gateway") {
+      throw unprocessable("Removing local skill overrides is currently only supported for OpenClaw agents.");
+    }
+
+    const adapterConfig = (agent.adapterConfig ?? {}) as Record<string, unknown>;
+    const workspaceRoot = resolveOpenClawAgentWorkspaceRoot(adapterConfig);
+    if (!workspaceRoot) {
+      throw unprocessable("OpenClaw agent is missing a workspace root/cwd, so local skill removal cannot be resolved.");
+    }
+
+    const targetDir = path.resolve(workspaceRoot, "skills", skill.slug);
+    await fs.rm(targetDir, { recursive: true, force: true });
+
+    return {
+      agentId: agent.id,
+      skillId: skill.id,
+      skillKey: skill.key,
+      skillSlug: skill.slug,
+      removedScope: "local",
+      removedPath: targetDir,
+    };
+  }
+
   async function installUpdate(companyId: string, skillId: string): Promise<CompanySkill | null> {
     await ensureSkillInventoryCurrent(companyId);
     const skill = await getById(skillId);
@@ -2009,8 +2230,24 @@ export function companySkillService(db: Db) {
   ): Promise<PaperclipSkillEntry[]> {
     const skills = await listFull(companyId);
 
-    const out: PaperclipSkillEntry[] = [];
+    const bestByKey = new Map<string, CompanySkill>();
+    const scopePriority: Record<CompanySkillScope, number> = {
+      local: 4,
+      global: 3,
+      bundled: 2,
+      extra_dir: 1,
+      catalog: 0,
+    };
+
     for (const skill of skills) {
+      const existing = bestByKey.get(skill.key);
+      if (!existing || scopePriority[skill.scope] > scopePriority[existing.scope]) {
+        bestByKey.set(skill.key, skill);
+      }
+    }
+
+    const out: PaperclipSkillEntry[] = [];
+    for (const skill of bestByKey.values()) {
       const sourceKind = asString(getSkillMeta(skill).sourceKind);
       let source = normalizeSkillDirectory(skill);
       if (!source) {
@@ -2177,9 +2414,20 @@ export function companySkillService(db: Db) {
         continue;
       }
 
+      const inferredScope = inferCompanySkillScope({
+        sourceType: skill.sourceType,
+        sourceLocator: skill.sourceLocator,
+        metadata: skill.metadata,
+      });
+      const inferredTruthOrigin = inferCompanySkillTruthOrigin({
+        sourceType: skill.sourceType,
+        metadata: skill.metadata,
+      });
       const metadata = {
         ...(skill.metadata ?? {}),
         skillKey: skill.key,
+        scope: inferredScope,
+        truthOrigin: inferredTruthOrigin,
       };
       const values = {
         companyId,
@@ -2315,6 +2563,8 @@ export function companySkillService(db: Db) {
     importFromSource,
     scanProjectWorkspaces,
     importPackageFiles,
+    adoptSkillToOpenClawAgent,
+    removeLocalSkillFromOpenClawAgent,
     installUpdate,
     listRuntimeSkillEntries,
   };

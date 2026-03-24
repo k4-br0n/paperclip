@@ -2,6 +2,8 @@ export type { Company } from "./company.js";
 export type { InstanceExperimentalSettings, InstanceGeneralSettings, InstanceSettings } from "./instance.js";
 export type {
   CompanySkillSourceType,
+  CompanySkillScope,
+  CompanySkillTruthOrigin,
   CompanySkillTrustLevel,
   CompanySkillCompatibility,
   CompanySkillSourceBadge,
@@ -20,11 +22,17 @@ export type {
   CompanySkillCreateRequest,
   CompanySkillFileDetail,
   CompanySkillFileUpdateRequest,
+  CompanySkillAdoptToAgentRequest,
+  CompanySkillAdoptToAgentResult,
+  CompanySkillRemoveLocalFromAgentRequest,
+  CompanySkillRemoveLocalFromAgentResult,
 } from "./company-skill.js";
 export type {
   AgentSkillSyncMode,
   AgentSkillState,
   AgentSkillOrigin,
+  AgentSkillScope,
+  AgentSkillEffectiveState,
   AgentSkillEntry,
   AgentSkillSnapshot,
   AgentSkillSyncRequest,

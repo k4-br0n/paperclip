@@ -4,6 +4,7 @@ import type { Db } from "@paperclipai/db";
 import { normalizeAgentUrlKey } from "@paperclipai/shared";
 import type { agentService } from "./agents.js";
 import type { agentInstructionsService } from "./agent-instructions.js";
+import type { companySkillService } from "./company-skills.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 
 const DEFAULT_RELATIVE_KEY_PATH = ".paperclip/claimed-api-key.json";
@@ -102,10 +103,34 @@ async function upsertAgentsMdNote(input: {
   return bundle;
 }
 
+async function installRequiredPaperclipSkillsForOpenClawAgent(input: {
+  companySkills: ReturnType<typeof companySkillService>;
+  companyId: string;
+  workspaceRoot: string;
+}) {
+  const runtimeEntries = await input.companySkills.listRuntimeSkillEntries(input.companyId, {
+    materializeMissing: true,
+  });
+  const requiredEntries = runtimeEntries.filter((entry) => entry.required);
+  if (requiredEntries.length === 0) return [];
+
+  const installed: string[] = [];
+  for (const entry of requiredEntries) {
+    const slug = entry.runtimeName || entry.key.split("/").pop() || entry.key;
+    const targetDir = path.join(input.workspaceRoot, "skills", slug);
+    await fs.rm(targetDir, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(targetDir), { recursive: true });
+    await fs.cp(entry.source, targetDir, { recursive: true });
+    installed.push(targetDir);
+  }
+  return installed;
+}
+
 export function openClawPaperclipProvisioningService(input: {
   db: Db;
   agents: ReturnType<typeof agentService>;
   instructions: ReturnType<typeof agentInstructionsService>;
+  companySkills: ReturnType<typeof companySkillService>;
   paperclipBaseUrl: string;
 }) {
   return {
@@ -146,6 +171,12 @@ export function openClawPaperclipProvisioningService(input: {
       await fs.writeFile(claimedApiKeyPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
       await fs.chmod(claimedApiKeyPath, 0o600).catch(() => undefined);
 
+      const installedRequiredSkillPaths = await installRequiredPaperclipSkillsForOpenClawAgent({
+        companySkills: input.companySkills,
+        companyId: agent.companyId,
+        workspaceRoot,
+      });
+
       const nextAdapterConfig: Record<string, unknown> = {
         ...adapterConfig,
         paperclipApiUrl: asNonEmptyString(adapterConfig.paperclipApiUrl) ?? input.paperclipBaseUrl,
@@ -175,6 +206,7 @@ export function openClawPaperclipProvisioningService(input: {
         apiUrl: input.paperclipBaseUrl,
         keyId: created.id,
         keyName: created.name,
+        installedRequiredSkillPaths,
       };
     },
 

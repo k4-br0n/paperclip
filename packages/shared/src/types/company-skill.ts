@@ -1,10 +1,26 @@
 export type CompanySkillSourceType = "local_path" | "github" | "url" | "catalog" | "skills_sh";
 
+export type CompanySkillScope = "bundled" | "global" | "local" | "extra_dir" | "catalog";
+
+export type CompanySkillTruthOrigin = "filesystem" | "catalog" | "runtime_projection";
+
 export type CompanySkillTrustLevel = "markdown_only" | "assets" | "scripts_executables";
 
 export type CompanySkillCompatibility = "compatible" | "unknown" | "invalid";
 
-export type CompanySkillSourceBadge = "paperclip" | "github" | "local" | "url" | "catalog" | "skills_sh";
+export type CompanySkillSourceBadge = "paperclip" | "github" | "local" | "global" | "bundled" | "url" | "catalog" | "skills_sh";
+
+export type CompanySkillEffectiveState =
+  | "absent"
+  | "bundled_only"
+  | "global_only"
+  | "local_only"
+  | "local_overrides_global"
+  | "assigned_bundled"
+  | "assigned_global"
+  | "assigned_local"
+  | "broken"
+  | "unmanaged";
 
 export interface CompanySkillFileInventoryEntry {
   path: string;
@@ -20,6 +36,8 @@ export interface CompanySkill {
   description: string | null;
   markdown: string;
   sourceType: CompanySkillSourceType;
+  scope: CompanySkillScope;
+  truthOrigin: CompanySkillTruthOrigin;
   sourceLocator: string | null;
   sourceRef: string | null;
   trustLevel: CompanySkillTrustLevel;
@@ -38,6 +56,8 @@ export interface CompanySkillListItem {
   name: string;
   description: string | null;
   sourceType: CompanySkillSourceType;
+  scope: CompanySkillScope;
+  truthOrigin: CompanySkillTruthOrigin;
   sourceLocator: string | null;
   sourceRef: string | null;
   trustLevel: CompanySkillTrustLevel;
@@ -149,4 +169,31 @@ export interface CompanySkillFileDetail {
 export interface CompanySkillFileUpdateRequest {
   path: string;
   content: string;
+}
+
+export interface CompanySkillAdoptToAgentRequest {
+  agentId: string;
+}
+
+export interface CompanySkillAdoptToAgentResult {
+  agentId: string;
+  skillId: string;
+  skillKey: string;
+  skillSlug: string;
+  installedScope: "local";
+  installPath: string;
+  sourcePath: string;
+}
+
+export interface CompanySkillRemoveLocalFromAgentRequest {
+  agentId: string;
+}
+
+export interface CompanySkillRemoveLocalFromAgentResult {
+  agentId: string;
+  skillId: string;
+  skillKey: string;
+  skillSlug: string;
+  removedScope: "local";
+  removedPath: string;
 }

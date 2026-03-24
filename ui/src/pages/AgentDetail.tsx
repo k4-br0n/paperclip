@@ -18,6 +18,7 @@ import { issuesApi } from "../api/issues";
 import { usePanel } from "../context/PanelContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
+import { useToast } from "../context/ToastContext";
 import { useDialog } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
@@ -41,6 +42,7 @@ import { ScrollToBottom } from "../components/ScrollToBottom";
 import { formatCents, formatDate, relativeTime, formatTokens, visibleRunCostUsd } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -71,6 +73,12 @@ import {
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { AgentIcon, AgentIconPicker } from "../components/AgentIconPicker";
 import { RunTranscriptView, type TranscriptMode } from "../components/transcript/RunTranscriptView";
@@ -2264,6 +2272,34 @@ function PromptEditorSkeleton() {
   );
 }
 
+function formatSkillScopeLabel(value: string | null | undefined) {
+  if (!value) return null;
+  switch (value) {
+    case "local": return "Local override";
+    case "global": return "Global";
+    case "bundled": return "Bundled";
+    case "extra_dir": return "Extra dir";
+    case "catalog": return "Catalog";
+    default: return value.replaceAll("_", " ");
+  }
+}
+
+function formatEffectiveStateLabel(value: string | null | undefined) {
+  if (!value) return null;
+  switch (value) {
+    case "assigned_local": return "Using local";
+    case "assigned_global": return "Using global";
+    case "assigned_bundled": return "Using bundled";
+    case "local_overrides_global": return "Local overrides global";
+    case "local_only": return "Local only";
+    case "global_only": return "Global only";
+    case "bundled_only": return "Bundled only";
+    case "broken": return "Needs attention";
+    case "unmanaged": return "Unmanaged";
+    default: return value.replaceAll("_", " ");
+  }
+}
+
 function AgentSkillsTab({
   agent,
   companyId,
@@ -2279,12 +2315,15 @@ function AgentSkillsTab({
     detail: string | null;
     locationLabel: string | null;
     originLabel: string | null;
+    scopeLabel: string | null;
+    effectiveLabel: string | null;
     linkTo: string | null;
     readOnly: boolean;
     adapterEntry: AgentSkillEntry | null;
   };
 
   const queryClient = useQueryClient();
+  const { pushToast } = useToast();
   const [skillDraft, setSkillDraft] = useState<string[]>([]);
   const [lastSavedSkills, setLastSavedSkills] = useState<string[]>([]);
   const lastSavedSkillsRef = useRef<string[]>([]);
@@ -2313,6 +2352,56 @@ function AgentSkillsTab({
         queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.urlKey) }),
       ]);
+    },
+  });
+
+  const adoptSkillToAgent = useMutation({
+    mutationFn: (skillId: string) => companySkillsApi.adoptToAgent(companyId!, skillId, agent.id),
+    onSuccess: async (result) => {
+      pushToast({
+        tone: "success",
+        title: "Skill adopted locally",
+        body: `${result.skillSlug} was installed into ${result.installPath}`,
+        ttlMs: 25000,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.skills(agent.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(companyId ?? "") }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
+      ]);
+    },
+    onError: (error) => {
+      pushToast({
+        tone: "error",
+        title: "Failed to adopt skill locally",
+        body: error instanceof Error ? error.message : "Unknown error",
+        ttlMs: 25000,
+      });
+    },
+  });
+
+  const removeLocalSkillFromAgent = useMutation({
+    mutationFn: (skillId: string) => companySkillsApi.removeLocalFromAgent(companyId!, skillId, agent.id),
+    onSuccess: async (result) => {
+      pushToast({
+        tone: "success",
+        title: "Local override removed",
+        body: `${result.skillSlug} was removed from ${result.removedPath}`,
+        ttlMs: 25000,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.skills(agent.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(companyId ?? "") }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
+      ]);
+    },
+    onError: (error) => {
+      pushToast({
+        tone: "error",
+        title: "Failed to remove local override",
+        body: error instanceof Error ? error.message : "Unknown error",
+        ttlMs: 25000,
+      });
     },
   });
 
@@ -2383,6 +2472,8 @@ function AgentSkillsTab({
           detail: adapterEntryByKey.get(skill.key)?.detail ?? null,
           locationLabel: adapterEntryByKey.get(skill.key)?.locationLabel ?? null,
           originLabel: adapterEntryByKey.get(skill.key)?.originLabel ?? null,
+          scopeLabel: adapterEntryByKey.get(skill.key)?.scope ?? skill.scope,
+          effectiveLabel: adapterEntryByKey.get(skill.key)?.effectiveState ?? null,
           linkTo: `/skills/${skill.id}`,
           readOnly: false,
           adapterEntry: adapterEntryByKey.get(skill.key) ?? null,
@@ -2403,6 +2494,8 @@ function AgentSkillsTab({
             detail: entry.detail ?? null,
             locationLabel: entry.locationLabel ?? null,
             originLabel: entry.originLabel ?? null,
+            scopeLabel: entry.scope ?? companySkill?.scope ?? null,
+            effectiveLabel: entry.effectiveState ?? null,
             linkTo: companySkill ? `/skills/${companySkill.id}` : null,
             readOnly: false,
             adapterEntry: entry,
@@ -2422,6 +2515,8 @@ function AgentSkillsTab({
           detail: entry.detail ?? null,
           locationLabel: entry.locationLabel ?? null,
           originLabel: entry.originLabel ?? null,
+          scopeLabel: entry.scope ?? null,
+          effectiveLabel: entry.effectiveState ?? null,
           linkTo: null,
           readOnly: true,
           adapterEntry: entry,
@@ -2507,13 +2602,105 @@ function AgentSkillsTab({
                     <div className="min-w-0">
                       <span className="truncate font-medium">{skill.name}</span>
                     </div>
-                    {skill.linkTo ? (
-                      <Link
-                        to={skill.linkTo}
-                        className="shrink-0 text-xs text-muted-foreground no-underline hover:text-foreground"
+                    <div className="shrink-0 flex items-center gap-2">
+                      {agent.adapterType === "openclaw_gateway"
+                      && skill.linkTo
+                      && skill.adapterEntry?.scope === "global"
+                      && skill.adapterEntry?.effectiveState !== "assigned_local"
+                      && skill.adapterEntry?.effectiveState !== "local_only"
+                      && skill.adapterEntry?.effectiveState !== "local_overrides_global" ? (
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                          onClick={() => adoptSkillToAgent.mutate(skill.id)}
+                          disabled={adoptSkillToAgent.isPending}
+                        >
+                          {adoptSkillToAgent.isPending ? "Adopting..." : "Adopt locally"}
+                        </button>
+                      ) : null}
+                      {agent.adapterType === "openclaw_gateway"
+                      && skill.linkTo
+                      && !adapterEntry?.required
+                      && (skill.adapterEntry?.effectiveState === "assigned_local"
+                        || skill.adapterEntry?.effectiveState === "local_only"
+                        || skill.adapterEntry?.effectiveState === "local_overrides_global") ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                              aria-label="Open skill actions"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => adoptSkillToAgent.mutate(skill.id)}
+                              disabled={adoptSkillToAgent.isPending}
+                            >
+                              Refresh local copy from global
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => removeLocalSkillFromAgent.mutate(skill.id)}
+                              disabled={removeLocalSkillFromAgent.isPending}
+                            >
+                              Remove local override
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
+                      {skill.linkTo ? (
+                        <Link
+                          to={skill.linkTo}
+                          className="text-xs text-muted-foreground no-underline hover:text-foreground"
+                        >
+                          View
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {formatSkillScopeLabel(skill.scopeLabel) ? (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "rounded-full px-2 py-0 text-[10px] border-transparent",
+                          skill.scopeLabel === "local"
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : skill.scopeLabel === "global"
+                              ? "bg-sky-500/15 text-sky-700 dark:text-sky-300"
+                              : skill.scopeLabel === "bundled"
+                                ? "bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                                : "bg-muted text-foreground/80",
+                        )}
                       >
-                        View
-                      </Link>
+                        {formatSkillScopeLabel(skill.scopeLabel)}
+                      </Badge>
+                    ) : null}
+                    {formatEffectiveStateLabel(skill.effectiveLabel) ? (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "rounded-full px-2 py-0 text-[10px] border-transparent",
+                          skill.effectiveLabel === "assigned_local" || skill.effectiveLabel === "local_overrides_global"
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : skill.effectiveLabel === "assigned_global"
+                              ? "bg-sky-500/15 text-sky-700 dark:text-sky-300"
+                              : skill.effectiveLabel === "assigned_bundled"
+                                ? "bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                                : skill.effectiveLabel === "broken"
+                                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                  : "bg-muted text-foreground/80",
+                        )}
+                      >
+                        {formatEffectiveStateLabel(skill.effectiveLabel)}
+                      </Badge>
+                    ) : null}
+                    {adapterEntry?.required ? (
+                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] border-transparent bg-violet-500/15 text-violet-700 dark:text-violet-300">
+                        Required
+                      </Badge>
                     ) : null}
                   </div>
                   {skill.description && (
@@ -2524,9 +2711,11 @@ function AgentSkillsTab({
                   {skill.readOnly && skill.originLabel && (
                     <p className="mt-1 text-xs text-muted-foreground">{skill.originLabel}</p>
                   )}
-                  {skill.readOnly && skill.locationLabel && (
-                    <p className="mt-1 text-xs text-muted-foreground">Location: {skill.locationLabel}</p>
-                  )}
+                  {skill.locationLabel ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {skill.scopeLabel === "local" ? "Local path" : skill.scopeLabel === "global" ? "Global path" : "Location"}: {skill.locationLabel}
+                    </p>
+                  ) : null}
                   {skill.detail && (
                     <p className="mt-1 text-xs text-muted-foreground">{skill.detail}</p>
                   )}
