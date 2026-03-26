@@ -13,14 +13,22 @@ STARTUP_TIMEOUT_SECONDS="${PAPERCLIP_STARTUP_TIMEOUT_SECONDS:-90}"
 HEALTHCHECK_INTERVAL_SECONDS="${PAPERCLIP_HEALTHCHECK_INTERVAL_SECONDS:-20}"
 HEALTHCHECK_FAILURE_THRESHOLD="${PAPERCLIP_HEALTHCHECK_FAILURE_THRESHOLD:-3}"
 CURL_BIN="$(command -v curl)"
+RUNTIME_EXPORTS_ENABLED=0
 
 cleanup() {
   if [[ -n "${CHILD_PID:-}" ]] && kill -0 "$CHILD_PID" 2>/dev/null; then
     kill "$CHILD_PID" 2>/dev/null || true
     wait "$CHILD_PID" 2>/dev/null || true
   fi
+  if [[ "$RUNTIME_EXPORTS_ENABLED" -eq 1 ]]; then
+    node "$REPO_ROOT/scripts/disable-repo-runtime-exports.mjs" || true
+    RUNTIME_EXPORTS_ENABLED=0
+  fi
 }
 trap cleanup EXIT INT TERM
+
+node "$REPO_ROOT/scripts/enable-repo-runtime-exports.mjs"
+RUNTIME_EXPORTS_ENABLED=1
 
 "$REPO_ROOT/scripts/run-repo-main.sh" &
 CHILD_PID=$!

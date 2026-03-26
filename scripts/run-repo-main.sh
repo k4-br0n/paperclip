@@ -25,10 +25,4 @@ if [ ! -f "$REPO_ROOT/server/dist/index.js" ] || [ ! -f "$REPO_ROOT/server/ui-di
   bash "$REPO_ROOT/scripts/prepare-server-ui-dist.sh"
 fi
 
-node "$REPO_ROOT/scripts/enable-repo-runtime-exports.mjs"
-cleanup() {
-  node "$REPO_ROOT/scripts/disable-repo-runtime-exports.mjs" || true
-}
-trap cleanup EXIT INT TERM
-
 exec node "$REPO_ROOT/server/dist/index.js"

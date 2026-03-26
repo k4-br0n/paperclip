@@ -59,11 +59,11 @@ An earlier attempt used an isolated `.repo-runtime/node_modules` overlay plus `N
 
 Current runtime reality:
 
-- `scripts/run-repo-main.sh` performs a controlled temporary export rewrite for the small set of workspace packages the live server imports
+- `scripts/run-repo-main-supervised.sh` owns a controlled temporary export rewrite for the small set of workspace packages the live server imports
 - exports are rewritten from `./src/*.ts` to `./dist/*.js` just before boot
-- the launcher restores the original exports on process exit via trap-based cleanup
+- the supervisor restores the original exports when the child server exits or is terminated
 
-This is less elegant than the overlay idea, but it is the currently reliable runtime path for the live repo-backed instance.
+This is less elegant than the overlay idea, but it is the currently reliable runtime path for the live repo-backed instance while also keeping repo cleanup in the supervisor layer instead of the child exec path.
 
 ## Canonical Scripts
 
