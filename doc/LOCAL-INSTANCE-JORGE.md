@@ -158,7 +158,16 @@ That is deliberate.
 
 If Jorge changes code in the dev repo, those edits do **not** automatically show up in the live local "production" instance used for daily task management.
 
-The live instance runs from built artifacts from the same repo, so code changes become live only after an explicit prepare/promote step:
+The live instance runs from built artifacts from the same repo, so code changes become live only after an explicit prepare/promote step.
+
+Preferred verified deployment command:
+
+```bash
+cd /home/jorge/dev/paperclip-dev
+./scripts/deploy-repo-main.sh
+```
+
+Fallback manual equivalent:
 
 ```bash
 cd /home/jorge/dev/paperclip-dev

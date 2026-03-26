@@ -82,9 +82,22 @@ grep -Rni "Adopt locally\|Remove local override\|Provision Paperclip access \+ r
 
 This is not elegant, but it catches the very real case where source looks right and the built output still does not contain the expected feature surface.
 
-## 5. Live restart
+## 5. Live restart / verified deploy
 
-Promote explicitly:
+Preferred command:
+
+```bash
+./scripts/deploy-repo-main.sh
+```
+
+That script:
+- runs the prepare flow
+- restarts the live service
+- waits for `/api/health`
+- extracts the currently served hashed JS asset from live HTML
+- verifies that the asset returns JavaScript MIME instead of stale HTML fallback
+
+Fallback manual commands:
 
 ```bash
 systemctl --user restart paperclip-dev-main.service
@@ -97,6 +110,8 @@ Required checks:
 - service healthy
 - embedded Postgres healthy
 - supervisor wrapper still passing startup health
+- current root HTML references a real JS asset
+- referenced asset returns `Content-Type: text/javascript`
 
 ## 6. Browser/client sanity
 
