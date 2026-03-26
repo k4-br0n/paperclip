@@ -100,6 +100,26 @@ paperclipai run -d /home/jorge/.paperclip
 - New project guardrail added:
   - `doc/PROMOTION-CHECKLIST.md`
 
+### 2026-03-26 — Runtime resolution regression and stale-asset recovery
+
+#### Incident
+- Jorge reported a black screen when loading the live Paperclip instance through the SSH tunnel.
+- Browser console showed a module-script MIME mismatch caused by the app requesting an old hashed JS asset path and receiving HTML fallback instead.
+- Restarting the service exposed a deeper runtime regression: Node ESM was again resolving `@paperclipai/db` through the real repo package exports (`src/*.ts`) instead of built `dist/*.js`, causing `ERR_MODULE_NOT_FOUND` for `packages/db/src/client.js`.
+
+#### Root cause
+- The `.repo-runtime/node_modules` + `NODE_PATH` approach was not reliable for Node ESM package resolution in this monorepo.
+- Under restart conditions, the live server could still resolve workspace packages through the real repo package exports.
+
+#### Fix
+- Replaced the fragile runtime overlay path in the launcher with a controlled temporary export rewrite inside `scripts/run-repo-main.sh`.
+- The launcher now rewrites the relevant workspace package `exports` from `src/*.ts` to `dist/*.js` immediately before boot and restores them on exit.
+- Verified service recovery and verified the live server now serves the current hashed JS asset with the correct JavaScript MIME type.
+
+#### Durable lesson
+- A runtime strategy that looks cleaner on paper is not automatically the more reliable production-ish choice.
+- For this repo-backed Paperclip instance, Node ESM behavior is the constraint that matters.
+
 ### Notes
 - This cutover deliberately chose the **repo-first local-live runtime** lane instead of continuing package-first/tarball/release hardening.
 - Packaging improvements made earlier the same day may still be useful, but they are not the canonical path for Jorge's live local instance.

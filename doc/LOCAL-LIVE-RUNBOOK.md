@@ -89,17 +89,26 @@ This should:
 - build the UI
 - copy `ui/dist` to `server/ui-dist`
 
-#### Runtime overlay step
+#### Runtime resolution step
 
-```bash
-node scripts/setup-repo-runtime-node-path.mjs
-```
+There are two possible approaches in this repo history:
 
-Purpose:
+1. isolated `.repo-runtime/node_modules` overlay
+2. controlled temporary export rewrite before boot
 
-- create an isolated `.repo-runtime/node_modules`
-- point runtime package resolution at built `dist` outputs
-- avoid mutating package manifests during live runtime
+The overlay approach was cleaner in theory, but Node ESM resolution did not reliably honor it for all package imports during live service restart/recovery.
+
+Current reliable path:
+
+- `scripts/run-repo-main.sh` temporarily rewrites the relevant workspace package exports from `src/*.ts` to `dist/*.js`
+- starts `server/dist/index.js`
+- restores the original exports on exit
+
+Why this exists:
+
+- plain `node server/dist/index.js` is not enough
+- `NODE_PATH` + overlay is not robust enough here
+- the live runtime must force server imports onto built `dist` artifacts consistently
 
 #### Run step
 

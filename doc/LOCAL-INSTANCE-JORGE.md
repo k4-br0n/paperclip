@@ -49,18 +49,21 @@ This is intentionally **not** the same as:
 - the earlier `scripts/dev-runner.mjs` flow
 - package/tarball-based local install testing
 
-## Why the extra runtime overlay exists
+## Why the runtime launcher is a little weird
 
 Running `node server/dist/index.js` directly from the monorepo is not enough by itself.
 
 Reason: several workspace packages still export `src/*.ts` by default for normal repo development. A plain production Node process starting from `server/dist/index.js` can otherwise resolve into source/dev package exports instead of built `dist` files.
 
-To keep the live local instance repo-backed **without** mutating package manifests during runtime, the launcher creates an isolated runtime overlay:
+An earlier attempt used an isolated `.repo-runtime/node_modules` overlay plus `NODE_PATH`. That looked cleaner, but it turned out to be unreliable for Node ESM package resolution in this monorepo. Under restart/recovery conditions, Node could still resolve back to the real repo package exports and crash the live service.
 
-- script: `scripts/setup-repo-runtime-node-path.mjs`
-- output: `.repo-runtime/node_modules`
+Current runtime reality:
 
-That overlay provides runtime package resolution pointing at built `dist` output for the workspace packages the server needs.
+- `scripts/run-repo-main.sh` performs a controlled temporary export rewrite for the small set of workspace packages the live server imports
+- exports are rewritten from `./src/*.ts` to `./dist/*.js` just before boot
+- the launcher restores the original exports on process exit via trap-based cleanup
+
+This is less elegant than the overlay idea, but it is the currently reliable runtime path for the live repo-backed instance.
 
 ## Canonical Scripts
 
