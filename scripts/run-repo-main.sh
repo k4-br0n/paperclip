@@ -25,4 +25,4 @@ if [ ! -f "$REPO_ROOT/server/dist/index.js" ] || [ ! -f "$REPO_ROOT/server/ui-di
   bash "$REPO_ROOT/scripts/prepare-server-ui-dist.sh"
 fi
 
-exec node "$REPO_ROOT/server/dist/index.js"
+exec node server/dist/index.js

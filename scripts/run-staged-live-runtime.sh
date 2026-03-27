@@ -14,4 +14,4 @@ export PAPERCLIP_UI_DEV_MIDDLEWARE="false"
 export PAPERCLIP_MIGRATION_PROMPT="never"
 export PAPERCLIP_MIGRATION_AUTO_APPLY="true"
 
-exec node "$RUNTIME_ROOT/server/dist/index.js"
+exec node server/dist/index.js

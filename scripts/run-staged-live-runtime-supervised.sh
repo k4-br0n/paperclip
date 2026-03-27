@@ -29,7 +29,7 @@ HOST="$HOST" \
 PAPERCLIP_UI_DEV_MIDDLEWARE="false" \
 PAPERCLIP_MIGRATION_PROMPT="never" \
 PAPERCLIP_MIGRATION_AUTO_APPLY="true" \
-pnpm exec node "$RUNTIME_ROOT/server/dist/index.js" &
+pnpm exec node server/dist/index.js &
 CHILD_PID=$!
 
 startup_deadline=$(( $(date +%s) + STARTUP_TIMEOUT_SECONDS ))

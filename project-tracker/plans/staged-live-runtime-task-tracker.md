@@ -48,10 +48,18 @@ Create a proper split between:
   - `k4-br0n/paperclip-dev-private#2` — embedded Postgres recovery can leave web runtime up against dead DB port
 - Current focus: debug/fix in dev repo first; leave live instance alone until root cause is actually solved
 - Latest confirmed finding:
-  - historical repro in private issue `#1` says concrete staged runtime stayed alive while promoted `paperclip-current` path exited under `systemd-run --user`
-  - current re-test on 2026-03-27 no longer reproduces that split: both `/home/jorge/dev/paperclip-stable-runtime` and `/home/jorge/dev/paperclip-current` stayed alive under `systemd-run --user`
+  - historical repro in private issue `#1` is now narrowed to Node main-module path form under service/systemd context, not just symlink vs non-symlink cwd
+  - reproduced on 2026-03-27:
+    - `cd /home/jorge/dev/paperclip-current && exec /usr/bin/node server/dist/index.js` stays alive under `systemd-run --user`
+    - `exec /usr/bin/node /home/jorge/dev/paperclip-current/server/dist/index.js` exits cleanly after ~2s under the same class of context
   - `/home/jorge/dev/paperclip-current` currently resolves to `/home/jorge/dev/paperclip-releases/manual-seed/runtime`, not `/home/jorge/dev/paperclip-stable-runtime`
-  - first conclusion: the issue is not proven to be a simple symlink/cwd bug; need to diff the original failing launch path/service/runtime state against today’s now-stable assembled runtimes
+  - current fix direction: always `cd` into the runtime/repo root first, then launch Node with relative `server/dist/index.js`
+  - sweep completed for repo launchers involved in local/staged/runtime service flows:
+    - fixed `scripts/run-current-stable-runtime-supervised.sh`
+    - fixed `scripts/systemd-paperclip-main.sh`
+    - fixed `scripts/run-staged-live-runtime-supervised.sh`
+    - fixed `scripts/run-staged-live-runtime.sh`
+    - fixed `scripts/run-repo-main.sh`
 - Rule for this phase: capture findings in repo + private GitHub first, commit meaningful debugging steps as we go
 - Promotion rule:
   1. private repo = active debugging / messy work / private issues
