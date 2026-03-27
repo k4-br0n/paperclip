@@ -42,7 +42,18 @@ Create a proper split between:
 - Current stopgap remains usable while staged runtime is being built.
 
 ## Active Debugging — 2026-03-27
-- GitHub issue #1874: staged stable runtime exits cleanly under `systemd` after startup
-- GitHub issue #1875: embedded Postgres recovery can leave web runtime up against dead DB port
+- Private repo: `k4-br0n/paperclip-dev-private`
+- Private issues for this phase:
+  - `k4-br0n/paperclip-dev-private#1` — staged stable runtime exits cleanly under `systemd` after startup
+  - `k4-br0n/paperclip-dev-private#2` — embedded Postgres recovery can leave web runtime up against dead DB port
 - Current focus: debug/fix in dev repo first; leave live instance alone until root cause is actually solved
-- Rule for this phase: capture findings in repo + GitHub, commit meaningful debugging steps as we go
+- Latest confirmed finding:
+  - historical repro in private issue `#1` says concrete staged runtime stayed alive while promoted `paperclip-current` path exited under `systemd-run --user`
+  - current re-test on 2026-03-27 no longer reproduces that split: both `/home/jorge/dev/paperclip-stable-runtime` and `/home/jorge/dev/paperclip-current` stayed alive under `systemd-run --user`
+  - `/home/jorge/dev/paperclip-current` currently resolves to `/home/jorge/dev/paperclip-releases/manual-seed/runtime`, not `/home/jorge/dev/paperclip-stable-runtime`
+  - first conclusion: the issue is not proven to be a simple symlink/cwd bug; need to diff the original failing launch path/service/runtime state against today’s now-stable assembled runtimes
+- Rule for this phase: capture findings in repo + private GitHub first, commit meaningful debugging steps as we go
+- Promotion rule:
+  1. private repo = active debugging / messy work / private issues
+  2. public fork (`k4-br0n/paperclip`) = promotion target only once work is coherent
+  3. upstream (`paperclipai/paperclip`) = confirmed product bugs/fixes only after proof they are not Jorge/fork-specific

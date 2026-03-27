@@ -124,17 +124,31 @@ paperclipai run -d /home/jorge/.paperclip
 ### 2026-03-27 — Staged runtime/systemd debugging + embedded DB failure tracking
 
 #### Added
-- GitHub issue tracking for durable bug history:
-  - `#1874` — staged stable runtime exits cleanly under `systemd` after startup
-  - `#1875` — embedded Postgres recovery can leave web runtime up against dead DB port
+- Private GitHub repo for Jorge-specific dev/debug workflow:
+  - `k4-br0n/paperclip-dev-private`
+- Private issue tracking for active debugging:
+  - `k4-br0n/paperclip-dev-private#1` — staged stable runtime exits cleanly under `systemd` after startup
+  - `k4-br0n/paperclip-dev-private#2` — embedded Postgres recovery can leave web runtime up against dead DB port
 
 #### Observed
-- A staged/promoted runtime can start normally in shell context but exit successfully after ~2 seconds only under `systemd --user` / `systemd-run` context.
+- Historical debugging showed a staged/promoted runtime that could start normally in shell context but exit successfully after ~2 seconds under `systemd --user` / `systemd-run` context.
+- Re-test refined the bug: the decisive split is not simply symlink vs real path. It is the Node entrypoint form under the promoted runtime working directory:
+  - `node server/dist/index.js` from inside `/home/jorge/dev/paperclip-current` stays alive
+  - `node /home/jorge/dev/paperclip-current/server/dist/index.js` exits cleanly after ~2 seconds under the same service/systemd context
+- `/home/jorge/dev/paperclip-current` currently resolves to `/home/jorge/dev/paperclip-releases/manual-seed/runtime`.
 - A separate failure mode can leave the UI/API shell reachable while interactive routes fail with DB connection errors (`ECONNREFUSED 127.0.0.1:54329`).
+
+#### Fix under test
+- Updated the promoted-runtime launch scripts to `cd` into the runtime root and execute Node with the relative entrypoint `server/dist/index.js` instead of an absolute path.
+- Verified `paperclip-stable-main.service` stays active after restart with this change in the dev/debug environment.
 
 #### Operational decision
 - Pause attempts to stabilize the live instance until root cause is fixed in the dev repo.
 - Continue all debugging against repo/dev runtime with durable issue history and meaningful commits.
+- Default GitHub workflow is now:
+  1. private repo first for active debugging and issue tracking
+  2. public fork only when work is coherent and ready to promote
+  3. upstream main repo only for confirmed non-fork-specific bugs/fixes
 
 ### Notes
 - This cutover deliberately chose the **repo-first local-live runtime** lane instead of continuing package-first/tarball/release hardening.
