@@ -1858,6 +1858,10 @@ export function agentRoutes(db: Db) {
       return;
     }
 
+    if (touchesAdapterConfiguration && agent.adapterType === "openclaw_gateway") {
+      await openClawPaperclipProvisioning.syncClaimedKeyForAgent(agent.id);
+    }
+
     await logActivity(db, {
       companyId: agent.companyId,
       actorType: actor.actorType,

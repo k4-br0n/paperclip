@@ -43,6 +43,39 @@ function buildKeyPayload(input: { token: string; keyId: string; agentId: string;
   };
 }
 
+function resolveEffectivePaperclipApiUrl(input: {
+  adapterConfig: Record<string, unknown>;
+  paperclipBaseUrl: string;
+}) {
+  return asNonEmptyString(input.adapterConfig.paperclipApiUrl) ?? input.paperclipBaseUrl;
+}
+
+function syncClaimedKeyPayload(input: {
+  existing: Record<string, unknown>;
+  adapterConfig: Record<string, unknown>;
+  paperclipBaseUrl: string;
+}) {
+  const token = asNonEmptyString(input.existing.token);
+  const keyId = asNonEmptyString(input.existing.keyId);
+  const keyName = asNonEmptyString(input.existing.keyName);
+  const agentId = asNonEmptyString(input.existing.agentId);
+  const createdAt = asNonEmptyString(input.existing.createdAt);
+
+  if (!token || !keyId || !keyName || !agentId || !createdAt) return null;
+
+  return {
+    token,
+    keyId,
+    keyName,
+    agentId,
+    apiUrl: resolveEffectivePaperclipApiUrl({
+      adapterConfig: input.adapterConfig,
+      paperclipBaseUrl: input.paperclipBaseUrl,
+    }),
+    createdAt,
+  };
+}
+
 async function assertWorkspaceRootExists(workspaceRoot: string) {
   const stats = await fs.stat(workspaceRoot).catch(() => null);
   if (!stats || !stats.isDirectory()) {
@@ -155,6 +188,11 @@ export function openClawPaperclipProvisioningService(input: {
 
       await fs.mkdir(path.dirname(claimedApiKeyPath), { recursive: true });
 
+      const effectivePaperclipApiUrl = resolveEffectivePaperclipApiUrl({
+        adapterConfig,
+        paperclipBaseUrl: input.paperclipBaseUrl,
+      });
+
       const keyName = await nextProvisionedKeyName({
         agents: input.agents,
         agentId: agent.id,
@@ -166,7 +204,7 @@ export function openClawPaperclipProvisioningService(input: {
         keyId: created.id,
         keyName: created.name,
         agentId: agent.id,
-        apiUrl: input.paperclipBaseUrl,
+        apiUrl: effectivePaperclipApiUrl,
       });
       await fs.writeFile(claimedApiKeyPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
       await fs.chmod(claimedApiKeyPath, 0o600).catch(() => undefined);
@@ -182,7 +220,7 @@ export function openClawPaperclipProvisioningService(input: {
         paperclipClaimedApiKeyPath: claimedApiKeyPath,
       };
       if (!asNonEmptyString(adapterConfig.paperclipApiUrl)) {
-        nextAdapterConfig.paperclipApiUrl = input.paperclipBaseUrl;
+        nextAdapterConfig.paperclipApiUrl = effectivePaperclipApiUrl;
       }
       delete nextAdapterConfig.paperclipUseLegacyGlobalClaimedKeyFallback;
 
@@ -198,17 +236,54 @@ export function openClawPaperclipProvisioningService(input: {
           instructions: input.instructions,
           agent: refreshed,
           claimedApiKeyPath,
-          apiUrl: input.paperclipBaseUrl,
+          apiUrl: effectivePaperclipApiUrl,
         });
       }
 
       return {
         agentId: agent.id,
         claimedApiKeyPath,
-        apiUrl: input.paperclipBaseUrl,
+        apiUrl: effectivePaperclipApiUrl,
         keyId: created.id,
         keyName: created.name,
         installedRequiredSkillPaths,
+      };
+    },
+
+    async syncClaimedKeyForAgent(agentId: string) {
+      const agent = await input.agents.getById(agentId);
+      if (!agent) throw notFound("Agent not found");
+      if (agent.adapterType !== "openclaw_gateway") return null;
+
+      const adapterConfig = asRecord(agent.adapterConfig) ?? {};
+      const workspaceRoot = resolveAgentWorkspaceRoot(adapterConfig);
+      if (!workspaceRoot) return null;
+      await assertWorkspaceRootExists(workspaceRoot);
+
+      const claimedApiKeyPath =
+        asNonEmptyString(adapterConfig.paperclipClaimedApiKeyPath)
+        ?? path.join(workspaceRoot, DEFAULT_RELATIVE_KEY_PATH);
+      const raw = await fs.readFile(claimedApiKeyPath, "utf8").catch(() => null);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const syncedPayload = syncClaimedKeyPayload({
+        existing: parsed,
+        adapterConfig,
+        paperclipBaseUrl: input.paperclipBaseUrl,
+      });
+      if (!syncedPayload) return null;
+
+      await fs.mkdir(path.dirname(claimedApiKeyPath), { recursive: true });
+      await fs.writeFile(claimedApiKeyPath, `${JSON.stringify(syncedPayload, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      await fs.chmod(claimedApiKeyPath, 0o600).catch(() => undefined);
+
+      return {
+        claimedApiKeyPath,
+        apiUrl: syncedPayload.apiUrl,
       };
     },
 
@@ -236,7 +311,14 @@ export function openClawPaperclipProvisioningService(input: {
         throw conflict(`Claimed key file at ${claimedApiKeyPath} is missing a token field`);
       }
 
-      const response = await fetch(`${input.paperclipBaseUrl}/agents/me`, {
+      const effectivePaperclipApiUrl =
+        asNonEmptyString(parsed.apiUrl)
+        ?? resolveEffectivePaperclipApiUrl({
+          adapterConfig,
+          paperclipBaseUrl: input.paperclipBaseUrl,
+        });
+
+      const response = await fetch(`${effectivePaperclipApiUrl}/agents/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",

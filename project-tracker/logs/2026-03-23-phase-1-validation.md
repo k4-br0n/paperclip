@@ -82,7 +82,25 @@
   - `ws://127.0.0.1:18789` parses with port `18789` and passes the gateway probe.
   - `ws://127.0.0.1/18789` parses as host `127.0.0.1`, path `/18789`, implicit port `80`, and fails exactly with `connect ECONNREFUSED 127.0.0.1:80`.
 - The active dev instance is now working as expected once the URL was corrected.
-- Follow-up requested: add stronger UI/runtime error detection for malformed OpenClaw gateway URLs so slash-vs-port mistakes are caught before save/test.
+- Follow-up split into two tracks:
+  1. separate feature request to add stronger malformed OpenClaw gateway URL detection so slash-vs-port mistakes are caught before save/test
+  2. higher-priority provisioning fix so `claimed-api-key.json` is driven by effective per-agent config values as the source of truth
+
+## Claimed API key provisioning source-of-truth patch — 2026-03-27 05:05 UTC
+- Patched `server/src/services/openclaw-paperclip-provisioning.ts` so provisioning now resolves a single effective Paperclip API URL in this order:
+  1. saved per-agent `adapterConfig.paperclipApiUrl`
+  2. fallback server/default `paperclipBaseUrl`
+- The same resolved value is now used consistently for:
+  - generated `claimed-api-key.json` payload `apiUrl`
+  - returned provisioning response `apiUrl`
+  - AGENTS.md integration note content
+  - persisted adapter config fallback behavior when no override exists
+- Also patched identity testing to prefer `apiUrl` from the stored claimed-key JSON before falling back to adapter/default config, so the claimed file behaves like the runtime-facing source of truth.
+- Added regression coverage in `server/src/__tests__/openclaw-paperclip-provisioning.test.ts`:
+  - saved per-agent override survives and is written into claimed key JSON
+  - fallback still uses default Paperclip base URL when no override exists
+- Validation run:
+  - `corepack pnpm vitest run server/src/__tests__/openclaw-paperclip-provisioning.test.ts` ✅ passed (`2/2` tests)
 
 ## What remains unvalidated end-to-end
 - successful Paperclip API auth from the OpenClaw agent side during a live run with explicit env/config actually supplied
