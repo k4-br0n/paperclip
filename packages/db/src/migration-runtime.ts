@@ -62,6 +62,15 @@ function readPidFilePort(postmasterPidFile: string): number | null {
   }
 }
 
+async function canConnect(connectionString: string): Promise<boolean> {
+  try {
+    await getPostgresDataDirectory(connectionString);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function isPortInUse(port: number): Promise<boolean> {
   return await new Promise((resolve) => {
     const server = createServer();
@@ -136,12 +145,20 @@ async function ensureEmbeddedPostgresConnection(
   if (runningPid) {
     const port = runningPort ?? preferredPort;
     const adminConnectionString = `postgres://paperclip:paperclip@127.0.0.1:${port}/postgres`;
-    await ensurePostgresDatabase(adminConnectionString, "paperclip");
-    return {
-      connectionString: `postgres://paperclip:paperclip@127.0.0.1:${port}/paperclip`,
-      source: `embedded-postgres@${port}`,
-      stop: async () => {},
-    };
+    const reachable = await canConnect(adminConnectionString);
+    if (reachable) {
+      await ensurePostgresDatabase(adminConnectionString, "paperclip");
+      return {
+        connectionString: `postgres://paperclip:paperclip@127.0.0.1:${port}/paperclip`,
+        source: `embedded-postgres@${port}`,
+        stop: async () => {},
+      };
+    }
+
+    process.emitWarning(
+      `Ignoring stale embedded PostgreSQL postmaster state for ${dataDir} on port ${port}; pid ${runningPid} is not accepting connections.`,
+    );
+    rmSync(postmasterPidFile, { force: true });
   }
 
   const instance = new EmbeddedPostgres({

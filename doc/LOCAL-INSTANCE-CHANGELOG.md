@@ -119,6 +119,22 @@ paperclipai run -d /home/jorge/.paperclip
 #### Durable lesson
 - A runtime strategy that looks cleaner on paper is not automatically the more reliable production-ish choice.
 - For this repo-backed Paperclip instance, Node ESM behavior is the constraint that matters.
+- Important nuance: with the current export-rewrite approach, the relevant workspace package manifests remain intentionally rewritten while the live service is running and are restored when the child exits/stops. That means a dirty `git status` during steady-state service uptime is expected unless the repo is restructured to provide a cleaner ESM-safe runtime surface.
+
+### 2026-03-27 — Staged runtime/systemd debugging + embedded DB failure tracking
+
+#### Added
+- GitHub issue tracking for durable bug history:
+  - `#1874` — staged stable runtime exits cleanly under `systemd` after startup
+  - `#1875` — embedded Postgres recovery can leave web runtime up against dead DB port
+
+#### Observed
+- A staged/promoted runtime can start normally in shell context but exit successfully after ~2 seconds only under `systemd --user` / `systemd-run` context.
+- A separate failure mode can leave the UI/API shell reachable while interactive routes fail with DB connection errors (`ECONNREFUSED 127.0.0.1:54329`).
+
+#### Operational decision
+- Pause attempts to stabilize the live instance until root cause is fixed in the dev repo.
+- Continue all debugging against repo/dev runtime with durable issue history and meaningful commits.
 
 ### Notes
 - This cutover deliberately chose the **repo-first local-live runtime** lane instead of continuing package-first/tarball/release hardening.
