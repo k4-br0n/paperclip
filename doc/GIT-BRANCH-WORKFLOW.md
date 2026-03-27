@@ -4,19 +4,24 @@ This note explains how the Paperclip fork is structured on GitHub, how to think 
 
 ## Repo model
 
-There are two GitHub repositories involved:
+There are now three GitHub repositories involved:
 
 - **Upstream public repo:** `paperclipai/paperclip`
-- **Personal fork:** `k4-br0n/paperclip`
+- **Personal public fork:** `k4-br0n/paperclip`
+- **Private dev workbench:** `k4-br0n/paperclip-dev-private`
 
-The personal fork is the long-term home for custom OpenClaw-specific changes, live-instance runtime scripts/docs, and any private product-line divergence that is unlikely to be accepted upstream.
+Role split:
+- **private dev workbench** = active debugging, messy intermediate commits, private issue tracking, Jorge-specific experimentation
+- **personal public fork** = promotion target only once work is coherent and safe to expose publicly
+- **upstream public repo** = only for confirmed non-fork-specific bugs/fixes that are ready for proper upstream reporting or PRs
 
 ## Remote names in the local repo
 
 In the local clone at `/home/jorge/dev/paperclip-dev`:
 
 - `origin` = upstream public repo (`paperclipai/paperclip`)
-- `fork` = personal GitHub fork (`k4-br0n/paperclip`)
+- `fork` = personal public fork (`k4-br0n/paperclip`)
+- `private` = private dev workbench (`k4-br0n/paperclip-dev-private`)
 
 Verify with:
 
@@ -67,9 +72,11 @@ These are safety markers, not the normal daily working branch.
 
 ## Current recommended model
 
-- keep `master` as the default branch on the fork if it is useful as an upstream-ish baseline
-- keep the actual live custom baseline on `k4br0n/live`
-- create feature branches off `k4br0n/live` when doing meaningful work
+- do active debugging work against the **private** remote first
+- keep `master` on the public fork as an upstream-ish baseline if useful
+- keep the public custom baseline on `k4br0n/live`, but treat it as a **promotion branch**, not the messy scratchpad
+- create feature/debug branches locally as needed, and push them to `private` during active investigation
+- only push to `fork` once the work is coherent, reviewable, and safe to expose publicly
 - create backup branches for recovery checkpoints, not as the permanent mainline
 
 ## What ahead / behind means

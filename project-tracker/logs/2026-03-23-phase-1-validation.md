@@ -53,8 +53,40 @@
   - `corepack pnpm vitest run server/src/__tests__/openclaw-gateway-adapter.test.ts` → passed (`11/11` tests)
   - `corepack pnpm --filter @paperclipai/adapter-openclaw-gateway typecheck` → passed
 
+## WebSocket :80 regression investigation — 2026-03-27
+- Added targeted instrumentation to the OpenClaw gateway test-environment path in:
+  - `server/src/routes/agents.ts`
+  - `packages/adapters/openclaw-gateway/src/server/test.ts`
+- Route logging now captures:
+  - input adapter URL
+  - normalized adapter URL
+  - resolved runtime adapter URL
+  - input/runtime `paperclipApiUrl`
+  - runtime header keys
+- Adapter probe logging now captures:
+  - exact URL passed into `new WebSocket(...)`
+  - parsed protocol / hostname / port / pathname
+  - websocket error message on failure
+- Important dev-runtime finding: the Paperclip server imports `@paperclipai/adapter-openclaw-gateway/server` from built package `dist`, so source edits in `src/server/test.ts` do not take effect until the adapter package is rebuilt.
+- Rebuilt adapter package with:
+  - `corepack pnpm --filter @paperclipai/adapter-openclaw-gateway build`
+- Current leading hypothesis after direct library inspection/instrumentation:
+  - raw `ws` URL parsing itself is behaving correctly for `ws://127.0.0.1:18789`
+  - the reported `ECONNREFUSED 127.0.0.1:80` is likely introduced by a higher-level runtime/config/proxy path or misleading error-reporting boundary, not by basic `ws` URL parsing
+- Next validation step: reproduce `Test environment` against the rebuilt dev runtime and inspect the new route + adapter probe logs to see whether the runtime URL reaching the adapter is still correct at the moment of failure.
+
+## Regression closure — 2026-03-27 04:49 UTC
+- The `ECONNREFUSED 127.0.0.1:80` path is **closed** as operator input error (PEBCAK), not adapter/runtime corruption.
+- Jorge confirmed the gateway URL entered in the form used a forward slash form (`ws://127.0.0.1/18789`) instead of the correct port form (`ws://127.0.0.1:18789`).
+- Reproduction verified directly:
+  - `ws://127.0.0.1:18789` parses with port `18789` and passes the gateway probe.
+  - `ws://127.0.0.1/18789` parses as host `127.0.0.1`, path `/18789`, implicit port `80`, and fails exactly with `connect ECONNREFUSED 127.0.0.1:80`.
+- The active dev instance is now working as expected once the URL was corrected.
+- Follow-up requested: add stronger UI/runtime error detection for malformed OpenClaw gateway URLs so slash-vs-port mistakes are caught before save/test.
+
 ## What remains unvalidated end-to-end
 - successful Paperclip API auth from the OpenClaw agent side during a live run with explicit env/config actually supplied
 - actual live wake/run/result completion against a real native OpenClaw agent after this auth/bootstrap fix
 - real session continuity observed through the gateway using each binding mode
 - Paperclip UI roundtrip for editing/saving the new fields in a browser session across restarts
+- malformed-but-parseable OpenClaw gateway URLs should be detected more aggressively before save/test (planned hardening)

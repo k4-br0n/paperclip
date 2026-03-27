@@ -59,7 +59,7 @@ describe("resolveMigrationConnection embedded postgres recovery", () => {
 
     const ensurePostgresDatabaseSpy = vi
       .spyOn(client, "ensurePostgresDatabase")
-      .mockResolvedValue();
+      .mockResolvedValue("created");
 
     const initialise = vi.fn(async () => {});
     const start = vi.fn(async () => {});
@@ -73,7 +73,7 @@ describe("resolveMigrationConnection embedded postgres recovery", () => {
       },
     }));
 
-    const warningSpy = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+    const warningSpy = vi.spyOn(process, "emitWarning").mockImplementation((_warning: string | Error) => {});
 
     const result = await migrationRuntime.resolveMigrationConnection();
 

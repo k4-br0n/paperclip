@@ -179,9 +179,11 @@ export function openClawPaperclipProvisioningService(input: {
 
       const nextAdapterConfig: Record<string, unknown> = {
         ...adapterConfig,
-        paperclipApiUrl: asNonEmptyString(adapterConfig.paperclipApiUrl) ?? input.paperclipBaseUrl,
         paperclipClaimedApiKeyPath: claimedApiKeyPath,
       };
+      if (!asNonEmptyString(adapterConfig.paperclipApiUrl)) {
+        nextAdapterConfig.paperclipApiUrl = input.paperclipBaseUrl;
+      }
       delete nextAdapterConfig.paperclipUseLegacyGlobalClaimedKeyFallback;
 
       await input.agents.update(agent.id, { adapterConfig: nextAdapterConfig }, {

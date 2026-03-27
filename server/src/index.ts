@@ -718,7 +718,69 @@ function isMainModule(metaUrl: string): boolean {
 }
 
 if (isMainModule(import.meta.url)) {
-  void startServer().catch((err) => {
+  process.on("beforeExit", (code) => {
+    logger.error(
+      {
+        code,
+        activeHandles: (process as NodeJS.Process & { _getActiveHandles?: () => unknown[] })._getActiveHandles?.().map((handle) => {
+          const name = (handle as { constructor?: { name?: string } })?.constructor?.name ?? typeof handle;
+          return name;
+        }) ?? [],
+        activeRequests: (process as NodeJS.Process & { _getActiveRequests?: () => unknown[] })._getActiveRequests?.().map((req) => {
+          const name = (req as { constructor?: { name?: string } })?.constructor?.name ?? typeof req;
+          return name;
+        }) ?? [],
+      },
+      "Paperclip process beforeExit fired",
+    );
+  });
+
+  process.on("exit", (code) => {
+    logger.error({ code }, "Paperclip process exit fired");
+  });
+
+  process.on("uncaughtException", (err) => {
+    logger.error({ err }, "Paperclip process uncaughtException");
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logger.error({ reason }, "Paperclip process unhandledRejection");
+  });
+
+  const main = async () => {
+    const startedServer = await startServer();
+    let shuttingDown = false;
+
+    const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info({ signal }, "Shutting down Paperclip server");
+      await new Promise<void>((resolve, reject) => {
+        startedServer.server.close((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    };
+
+    process.once("SIGINT", () => {
+      logger.warn("Paperclip process received SIGINT");
+      void shutdown("SIGINT").finally(() => process.exit(0));
+    });
+    process.once("SIGTERM", () => {
+      logger.warn("Paperclip process received SIGTERM");
+      void shutdown("SIGTERM").finally(() => process.exit(0));
+    });
+
+    await new Promise<void>(() => {
+      // Intentionally never resolves; process lifetime is owned by the HTTP server + signal handlers.
+    });
+  };
+
+  void main().catch((err) => {
     logger.error({ err }, "Paperclip server failed to start");
     process.exit(1);
   });

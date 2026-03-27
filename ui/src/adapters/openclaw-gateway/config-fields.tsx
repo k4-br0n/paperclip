@@ -374,7 +374,14 @@ export function OpenClawGatewayConfigFields({
                     try {
                       const result = await agentsApi.provisionOpenClawPaperclipKey(agentId, companyId);
                       mark("adapterConfig", "paperclipClaimedApiKeyPath", result.claimedApiKeyPath);
-                      mark("adapterConfig", "paperclipApiUrl", result.apiUrl);
+                      const existingPaperclipApiUrl = eff(
+                        "adapterConfig",
+                        "paperclipApiUrl",
+                        String(config.paperclipApiUrl ?? ""),
+                      ).trim();
+                      if (!existingPaperclipApiUrl) {
+                        mark("adapterConfig", "paperclipApiUrl", result.apiUrl);
+                      }
                       setProvisionState("success");
                       setProvisionMessage(`Provisioned ${result.keyName} at ${result.claimedApiKeyPath}`);
                       pushToast({
