@@ -102,9 +102,24 @@
 - Validation run:
   - `corepack pnpm vitest run server/src/__tests__/openclaw-paperclip-provisioning.test.ts` ✅ passed (`2/2` tests)
 
+## Stable v1 promotion to forever-live — 2026-03-27 05:43 UTC
+- Jorge manually validated the dev instance after the two OpenClaw/Paperclip fixes:
+  - repeated top-right **Save** actions updated `claimed-api-key.json` while preserving the existing API key material
+  - deleting the claimed-key file + revoking the old key + reprovisioning a new key still preserved the configured `paperclipApiUrl` override
+  - a simple end-to-end Paperclip task against the OpenClaw-linked agent completed successfully
+- Based on that validation, this build was accepted as **stable v1**.
+- Stable runtime code baseline was committed to the private repo tracked branch `k4br0n/live` at commit `16b8746b` with message:
+  - `fix(openclaw): sync claimed key config on save and provision`
+- Forever-live service promotion completed cleanly using `./scripts/promote-stable-runtime.sh stable-v1-2026-03-27`.
+- Promotion behavior confirmed:
+  - built and smoke-tested staged runtime before cutover
+  - backed up current stable home to `/home/jorge/dev/paperclip-stable-home/backups/pre-release/default/stable-v1-2026-03-27.tar.gz`
+  - switched `/home/jorge/dev/paperclip-current` to `/home/jorge/dev/paperclip-releases/stable-v1-2026-03-27/runtime`
+  - restarted `paperclip-stable-main.service`
+  - health check passed at `http://127.0.0.1:3213/api/health`
+  - Jorge confirmed the live UI worked immediately after cutover
+- This should be treated as the canonical recovery baseline for the Paperclip forever-live service until superseded by a later explicitly validated release.
+
 ## What remains unvalidated end-to-end
-- successful Paperclip API auth from the OpenClaw agent side during a live run with explicit env/config actually supplied
-- actual live wake/run/result completion against a real native OpenClaw agent after this auth/bootstrap fix
-- real session continuity observed through the gateway using each binding mode
-- Paperclip UI roundtrip for editing/saving the new fields in a browser session across restarts
 - malformed-but-parseable OpenClaw gateway URLs should be detected more aggressively before save/test (planned hardening)
+- broader regression coverage around live upgrade/release workflow could still be improved, but the current stable v1 promotion path is proven
